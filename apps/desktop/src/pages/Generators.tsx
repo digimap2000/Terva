@@ -333,8 +333,8 @@ export function Generators() {
                   </CardHeader>
                   <CardContent className="space-y-4 text-sm text-muted-foreground">
                     <p>
-                      This page now keeps only the reusable sidebar and panel layout.
-                      The old Bluetooth-specific generator flow has been removed.
+                      This page keeps only the reusable sidebar and panel layout for
+                      a `.terva` project workbench.
                     </p>
                     <div className="rounded-lg border border-dashed border-border/70 bg-background/70 p-4">
                       No device scanning or hardware transport is attached to this

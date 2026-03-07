@@ -18,7 +18,7 @@ The repository is also structured for AI-assisted development from the start, wi
 - `apps/server/` contains `terva-server`.
 - `apps/cli/` contains `terva-client`.
 - `apps/example-backend/` contains a local HTTP JSON fixture backend for the demo project.
-- `apps/desktop/` contains the deferred Tauri desktop shell scaffold.
+- `apps/desktop/` contains the Tauri single-document workspace shell for `.terva` projects.
 - `core/` contains the project model, validator, backend adapter, executor, logging, and MCP runtime.
 - `examples/` contains hand-authored `.terva` project files.
 - `docs/` contains architecture and development notes.

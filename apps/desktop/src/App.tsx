@@ -1,18 +1,12 @@
 import { Route, Routes, useNavigate } from "react-router-dom";
-import { FileInput, FolderOpen, X } from "lucide-react";
+import { X } from "lucide-react";
 import { ActivityRail } from "@/components/layout/ActivityRail";
 import { StatusBar } from "@/components/layout/StatusBar";
 import { ZoomIndicator } from "@/components/layout/ZoomIndicator";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Generators } from "@/pages/Generators";
 import { ThemeReference } from "@/pages/ThemeReference";
+import { Welcome } from "@/pages/Welcome";
 import { useActiveProject } from "@/hooks/useActiveProject";
 import { useZoom } from "@/hooks/use-zoom";
 import type { ProjectDocument } from "@/lib/tauri";
@@ -53,12 +47,36 @@ function Workspace({ project, onCloseProject }: WorkspaceProps) {
 }
 
 export default function App() {
-  const { project, loading, error, openProject, closeProject } = useActiveProject();
+  const {
+    project,
+    loading,
+    recentProjects,
+    recentProjectsLoading,
+    error,
+    openProject,
+    createProject,
+    openRecentProject,
+    closeProject,
+  } = useActiveProject();
   const { zoom } = useZoom();
   const navigate = useNavigate();
 
   async function handleOpenProject() {
     const opened = await openProject();
+    if (opened) {
+      navigate("/");
+    }
+  }
+
+  async function handleCreateProject() {
+    const created = await createProject();
+    if (created) {
+      navigate("/");
+    }
+  }
+
+  async function handleOpenRecentProject(path: string) {
+    const opened = await openRecentProject(path);
     if (opened) {
       navigate("/");
     }
@@ -78,38 +96,15 @@ export default function App() {
         ) : (
           <>
             <ActivityRail documentOpen={false} />
-            <main className="flex flex-1 items-center justify-center rounded-tl-xl bg-background p-8">
-              <Card className="w-full max-w-2xl border-border/70 bg-card/60 backdrop-blur">
-                <CardHeader className="space-y-3">
-                  <div className="flex size-12 items-center justify-center rounded-xl bg-secondary text-foreground">
-                    <FileInput size={20} />
-                  </div>
-                  <div className="space-y-1">
-                    <CardTitle className="text-xl">Open a Terva project</CardTitle>
-                    <CardDescription className="max-w-xl text-sm leading-6">
-                      Terva is now a single-document app. Open one `.terva` project,
-                      work within that project, then close it before loading another.
-                    </CardDescription>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="rounded-lg border border-dashed border-border/70 bg-background/70 p-4 text-sm text-muted-foreground">
-                    No active project is loaded.
-                  </div>
-                  {error ? (
-                    <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-                      {error}
-                    </div>
-                  ) : null}
-                  <div className="flex items-center gap-3">
-                    <Button type="button" onClick={handleOpenProject} disabled={loading}>
-                      <FolderOpen />
-                      {loading ? "Opening..." : "Open Project"}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </main>
+            <Welcome
+              error={error}
+              loading={loading}
+              recentProjects={recentProjects}
+              recentProjectsLoading={recentProjectsLoading}
+              onCreateProject={handleCreateProject}
+              onOpenProject={handleOpenProject}
+              onOpenRecentProject={handleOpenRecentProject}
+            />
           </>
         )}
       </div>
