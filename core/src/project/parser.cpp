@@ -394,6 +394,18 @@ parse_precondition(const json& value,
   if (const auto literal = value.find("value"); literal != value.end()) {
     mapping.value = *literal;
   }
+  if (const auto transform = value.find("transform"); transform != value.end()) {
+    if (!transform->is_string()) {
+      return std::unexpected(path + ".transform must be a string");
+    }
+    const auto parsed_transform =
+        parse_output_transform(transform->get<std::string>());
+    if (!parsed_transform) {
+      return std::unexpected(path + ".transform is not supported: " +
+                             transform->get<std::string>());
+    }
+    mapping.transform = *parsed_transform;
+  }
   if (const auto normalize = value.find("normalize"); normalize != value.end()) {
     if (!normalize->is_object()) {
       return std::unexpected(path + ".normalize must be an object");
@@ -404,6 +416,12 @@ parse_precondition(const json& value,
   }
   if (const auto default_value = value.find("default"); default_value != value.end()) {
     mapping.default_value = *default_value;
+  }
+  if (const auto required = value.find("required"); required != value.end()) {
+    if (!required->is_boolean()) {
+      return std::unexpected(path + ".required must be a boolean");
+    }
+    mapping.required = required->get<bool>();
   }
 
   return mapping;
@@ -560,6 +578,18 @@ std::string_view to_string(const output_source value) noexcept {
   return "unknown";
 }
 
+std::string_view to_string(const output_transform value) noexcept {
+  switch (value) {
+    case output_transform::none:
+      return "none";
+    case output_transform::milliseconds_to_seconds:
+      return "milliseconds_to_seconds";
+    case output_transform::last_path_segment:
+      return "last_path_segment";
+  }
+  return "unknown";
+}
+
 std::optional<backend_type> parse_backend_type(const std::string_view value) noexcept {
   if (value == "http_json") {
     return backend_type::http_json;
@@ -596,6 +626,20 @@ std::optional<output_source> parse_output_source(
   }
   if (value == "literal") {
     return output_source::literal;
+  }
+  return std::nullopt;
+}
+
+std::optional<output_transform> parse_output_transform(
+    const std::string_view value) noexcept {
+  if (value == "none") {
+    return output_transform::none;
+  }
+  if (value == "milliseconds_to_seconds") {
+    return output_transform::milliseconds_to_seconds;
+  }
+  if (value == "last_path_segment") {
+    return output_transform::last_path_segment;
   }
   return std::nullopt;
 }

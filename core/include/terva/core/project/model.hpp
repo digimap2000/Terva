@@ -29,6 +29,12 @@ enum class output_source {
   literal,
 };
 
+enum class output_transform {
+  none,
+  milliseconds_to_seconds,
+  last_path_segment,
+};
+
 struct logging_options final {
   std::string sink{"stderr"};
   std::optional<std::filesystem::path> file_path;
@@ -84,11 +90,13 @@ struct verification_definition final {
 struct output_field_mapping final {
   std::string name;
   output_source source{output_source::literal};
+  output_transform transform{output_transform::none};
   std::optional<std::string> json_pointer;
   std::optional<std::string> input_name;
   std::optional<json> value;
   std::map<std::string, json, std::less<>> normalize;
   std::optional<json> default_value;
+  bool required{false};
 };
 
 struct capability_definition final {
@@ -121,10 +129,12 @@ struct validation_issue final {
 [[nodiscard]] std::string_view to_string(backend_type value) noexcept;
 [[nodiscard]] std::string_view to_string(http_method value) noexcept;
 [[nodiscard]] std::string_view to_string(output_source value) noexcept;
+[[nodiscard]] std::string_view to_string(output_transform value) noexcept;
 
 [[nodiscard]] std::optional<backend_type> parse_backend_type(std::string_view value) noexcept;
 [[nodiscard]] std::optional<http_method> parse_http_method(std::string_view value) noexcept;
 [[nodiscard]] std::optional<output_source> parse_output_source(std::string_view value) noexcept;
+[[nodiscard]] std::optional<output_transform> parse_output_transform(std::string_view value) noexcept;
 
 void to_json(json& target, const validation_issue& issue);
 

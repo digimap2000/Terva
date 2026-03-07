@@ -1,6 +1,6 @@
 {
   "name": "Streamer Power Control",
-  "description": "Known real-device power control for the streamer at 192.168.1.111:15081.",
+  "description": "Known real-device control and playback session reads for the streamer at 192.168.1.111:15081.",
   "logging": {
     "sink": "stderr"
   },
@@ -12,6 +12,77 @@
     }
   ],
   "capabilities": [
+    {
+      "id": "get_playback_session",
+      "tool_name": "get_playback_session",
+      "description": "Read the current playback session / now playing state of the streamer.",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "actions": [
+        {
+          "id": "read_playback_session",
+          "backend": "streamer",
+          "method": "GET",
+          "path": "/nowplaying",
+          "success_statuses": [200]
+        }
+      ],
+      "action": "read_playback_session",
+      "output_mapping": {
+        "playback_state": {
+          "source": "action",
+          "json_pointer": "/transportState",
+          "normalize": {
+            "1": "stopped",
+            "2": "playing",
+            "3": "paused",
+            "4": "buffering",
+            "5": "buffering",
+            "6": "paused",
+            "8": "buffering",
+            "9": "buffering"
+          },
+          "default": "unknown",
+          "required": true
+        },
+        "source": {
+          "source": "action",
+          "json_pointer": "/source",
+          "transform": "last_path_segment"
+        },
+        "title": {
+          "source": "action",
+          "json_pointer": "/title"
+        },
+        "artist": {
+          "source": "action",
+          "json_pointer": "/artistName"
+        },
+        "album": {
+          "source": "action",
+          "json_pointer": "/albumName"
+        },
+        "position_seconds": {
+          "source": "action",
+          "json_pointer": "/transportPosition",
+          "transform": "milliseconds_to_seconds"
+        },
+        "duration_seconds": {
+          "source": "action",
+          "json_pointer": "/duration",
+          "transform": "milliseconds_to_seconds"
+        },
+        "raw_transport_state": {
+          "source": "action",
+          "json_pointer": "/transportState",
+          "required": true
+        }
+      }
+    },
     {
       "id": "get_power_state",
       "tool_name": "get_power_state",

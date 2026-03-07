@@ -3,7 +3,9 @@
 #include "terva/core/project/validator.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <chrono>
+#include <cstdint>
 #include <sstream>
 #include <thread>
 #include <unordered_map>
@@ -257,6 +259,54 @@ render_string_map_templates(
   return value;
 }
 
+[[nodiscard]] std::expected<json, std::string> apply_output_transform(
+    const project::output_field_mapping& mapping,
+    const json& value) {
+  switch (mapping.transform) {
+    case project::output_transform::none:
+      return value;
+    case project::output_transform::milliseconds_to_seconds: {
+      std::int64_t milliseconds = 0;
+      if (value.is_number_integer()) {
+        milliseconds = value.get<std::int64_t>();
+      } else if (value.is_string()) {
+        const auto& text = value.get_ref<const std::string&>();
+        const auto* begin = text.data();
+        const auto* end = begin + text.size();
+        const auto [ptr, error] = std::from_chars(begin, end, milliseconds);
+        if (error != std::errc() || ptr != end) {
+          return std::unexpected("failed to parse milliseconds value: " + text);
+        }
+      } else {
+        return std::unexpected("milliseconds_to_seconds requires a string or integer");
+      }
+      return json(milliseconds / 1000);
+    }
+    case project::output_transform::last_path_segment: {
+      if (!value.is_string()) {
+        return std::unexpected("last_path_segment requires a string");
+      }
+      const auto& text = value.get_ref<const std::string&>();
+      const auto slash = text.find_last_of('/');
+      if (slash == std::string::npos) {
+        return value;
+      }
+      return json(text.substr(slash + 1));
+    }
+  }
+  return std::unexpected("unsupported output transform");
+}
+
+[[nodiscard]] std::expected<json, std::string> apply_output_mapping(
+    const project::output_field_mapping& mapping,
+    const json& value) {
+  const auto transformed = apply_output_transform(mapping, value);
+  if (!transformed) {
+    return std::unexpected(transformed.error());
+  }
+  return apply_output_normalization(mapping, *transformed);
+}
+
 [[nodiscard]] const project::output_field_mapping* find_output_mapping(
     const project::capability_definition& capability,
     const project::output_source source,
@@ -281,7 +331,8 @@ render_string_map_templates(
   if (mapping == nullptr) {
     return value;
   }
-  return apply_output_normalization(*mapping, value);
+  const auto normalized = apply_output_mapping(*mapping, value);
+  return normalized ? *normalized : value;
 }
 
 [[nodiscard]] std::expected<json, std::string> resolve_expected_value(
@@ -612,6 +663,68 @@ capability_executor::execute_tool(const std::string_view tool_name,
     return output;
   };
 
+  const auto resolve_output_value =
+      [&](const project::output_field_mapping& output_field,
+          const std::optional<json>& source_body)
+      -> std::expected<std::optional<json>, std::string> {
+    switch (output_field.source) {
+      case project::output_source::literal:
+        return output_field.value.value_or(json(nullptr));
+      case project::output_source::input: {
+        if (!output_field.input_name.has_value()) {
+          return std::unexpected("input output mapping is missing input_name");
+        }
+        const auto value = lookup_json_path(input, *output_field.input_name);
+        if (!value) {
+          if (output_field.default_value.has_value()) {
+            return output_field.default_value;
+          }
+          if (output_field.required) {
+            return std::unexpected(value.error());
+          }
+          return std::optional<json>{};
+        }
+        const auto mapped = apply_output_mapping(output_field, *value);
+        if (!mapped) {
+          return std::unexpected(mapped.error());
+        }
+        return std::optional<json>{*mapped};
+      }
+      case project::output_source::action:
+      case project::output_source::verification: {
+        if (!source_body.has_value()) {
+          if (output_field.default_value.has_value()) {
+            return output_field.default_value;
+          }
+          if (output_field.required) {
+            return std::unexpected("required output source body is unavailable");
+          }
+          return std::optional<json>{};
+        }
+        if (!output_field.json_pointer.has_value()) {
+          return std::unexpected("output mapping is missing json_pointer");
+        }
+        const auto value =
+            extract_json_pointer(*source_body, *output_field.json_pointer);
+        if (!value) {
+          if (output_field.default_value.has_value()) {
+            return output_field.default_value;
+          }
+          if (output_field.required) {
+            return std::unexpected(value.error());
+          }
+          return std::optional<json>{};
+        }
+        const auto mapped = apply_output_mapping(output_field, *value);
+        if (!mapped) {
+          return std::unexpected(mapped.error());
+        }
+        return std::optional<json>{*mapped};
+      }
+    }
+    return std::unexpected("unsupported output mapping source");
+  };
+
   const auto evaluate_expectation =
       [&](std::string stage,
           const std::string& result_id,
@@ -845,40 +958,23 @@ capability_executor::execute_tool(const std::string_view tool_name,
   if (!capability->output_fields.empty()) {
     result.output = json::object();
     for (const auto& output_field : capability->output_fields) {
-      switch (output_field.source) {
-        case project::output_source::input: {
-          if (!output_field.input_name.has_value()) {
-            result.output[output_field.name] = nullptr;
-            break;
-          }
-          const auto value = lookup_json_path(input, *output_field.input_name);
-          result.output[output_field.name] =
-              value ? apply_output_normalization(output_field, *value) : json(nullptr);
-          break;
-        }
-        case project::output_source::action: {
-          const auto value = extract_json_pointer(
-              main_output.response_body, *output_field.json_pointer);
-          result.output[output_field.name] =
-              value ? apply_output_normalization(output_field, *value) : json(nullptr);
-          break;
-        }
-        case project::output_source::verification: {
-          if (!verification_body.has_value()) {
-            result.output[output_field.name] = nullptr;
-            break;
-          }
-          const auto value = extract_json_pointer(
-              *verification_body, *output_field.json_pointer);
-          result.output[output_field.name] =
-              value ? apply_output_normalization(output_field, *value) : json(nullptr);
-          break;
-        }
-        case project::output_source::literal:
-          result.output[output_field.name] =
-              output_field.value.value_or(json(nullptr));
-          break;
+      std::optional<json> source_body;
+      if (output_field.source == project::output_source::action) {
+        source_body = main_output.response_body;
+      } else if (output_field.source == project::output_source::verification &&
+                 verification_body.has_value()) {
+        source_body = *verification_body;
       }
+
+      const auto value = resolve_output_value(output_field, source_body);
+      if (!value) {
+        emit_result_failure("output", "output_mapping_failed", value.error());
+        return result;
+      }
+      if (!value->has_value()) {
+        continue;
+      }
+      result.output[output_field.name] = **value;
     }
   } else if (verification_body.has_value()) {
     result.output = *verification_body;

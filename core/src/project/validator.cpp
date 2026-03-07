@@ -271,6 +271,11 @@ std::vector<validation_issue> validate_project(const project_definition& project
         issues.push_back({path + ".value",
                           "must be set for literal output mappings"});
       }
+      if (output.transform != output_transform::none &&
+          output.source == output_source::literal) {
+        issues.push_back({path + ".transform",
+                          "is not valid for literal output mappings"});
+      }
       if (!output.normalize.empty()) {
         if (output.source != output_source::action &&
             output.source != output_source::verification &&

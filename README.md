@@ -71,12 +71,15 @@ The repo also includes a real-device project file at [streamer.terva](/Users/and
 ./build/dev/apps/server/terva-server inspect streamer.terva
 ./build/dev/apps/server/terva-server run --listen http://127.0.0.1:7777/mcp streamer.terva
 ./build/dev/apps/cli/terva-client tools http://127.0.0.1:7777/mcp
+./build/dev/apps/cli/terva-client call http://127.0.0.1:7777/mcp get_playback_session '{}'
 ./build/dev/apps/cli/terva-client call http://127.0.0.1:7777/mcp get_power_state '{}'
 ./build/dev/apps/cli/terva-client call http://127.0.0.1:7777/mcp enter_active '{}'
 ./build/dev/apps/cli/terva-client call http://127.0.0.1:7777/mcp get_power_state '{}'
 ./build/dev/apps/cli/terva-client call http://127.0.0.1:7777/mcp enter_standby '{}'
 ./build/dev/apps/cli/terva-client call http://127.0.0.1:7777/mcp get_power_state '{}'
 ```
+
+`get_playback_session` reads `GET /nowplaying`, normalizes the streamer transport state into a stable Terva playback state, derives a concise source name, and converts vendor millisecond positions into seconds while retaining the raw backend payload under `trace`.
 
 `get_power_state` reads `GET /power`, extracts the device `system` field, and normalizes it to `active`, `standby`, or `unknown`.
 

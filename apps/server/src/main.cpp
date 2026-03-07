@@ -212,6 +212,10 @@ void print_inspection(const terva::core::project::project_definition& project) {
       if (output.json_pointer.has_value()) {
         std::cout << ' ' << *output.json_pointer;
       }
+      if (output.transform != terva::core::project::output_transform::none) {
+        std::cout << " transform="
+                  << terva::core::project::to_string(output.transform);
+      }
       if (!output.normalize.empty()) {
         std::cout << " normalize{";
         bool first = true;
@@ -226,6 +230,9 @@ void print_inspection(const terva::core::project::project_definition& project) {
         if (output.default_value.has_value()) {
           std::cout << " default=" << output.default_value->dump();
         }
+      }
+      if (output.required) {
+        std::cout << " required=true";
       }
       std::cout << '\n';
     }
