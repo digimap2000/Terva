@@ -1,0 +1,14 @@
+build/
+dist/
+target/
+.DS_Store
+.idea/
+.vscode/
+.cache/
+.clangd/
+.tauri/
+*.log
+*.tmp
+*.swp
+*.swo
+compile_commands.json
