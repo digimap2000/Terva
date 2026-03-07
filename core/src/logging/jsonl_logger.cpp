@@ -31,8 +31,8 @@ namespace {
 }  // namespace
 
 struct jsonl_logger::impl final {
-  explicit impl(project::logging_options options_value)
-      : options(std::move(options_value)) {
+  explicit impl(project::logging_options options_value, event_callback callback_value)
+      : options(std::move(options_value)), callback(std::move(callback_value)) {
     if (options.file_path.has_value()) {
       std::filesystem::create_directories(options.file_path->parent_path());
       file.emplace(*options.file_path, std::ios::app);
@@ -40,12 +40,13 @@ struct jsonl_logger::impl final {
   }
 
   project::logging_options options;
+  event_callback callback;
   mutable std::mutex mutex;
   mutable std::optional<std::ofstream> file;
 };
 
-jsonl_logger::jsonl_logger(project::logging_options options)
-    : impl_(std::make_unique<impl>(std::move(options))) {}
+jsonl_logger::jsonl_logger(project::logging_options options, event_callback callback)
+    : impl_(std::make_unique<impl>(std::move(options), std::move(callback))) {}
 
 jsonl_logger::~jsonl_logger() = default;
 jsonl_logger::jsonl_logger(jsonl_logger&&) noexcept = default;
@@ -62,6 +63,11 @@ void jsonl_logger::emit(const std::string_view event_name, json payload) const {
 
   payload["timestamp"] = utc_timestamp_now();
   payload["event"] = event_name;
+
+  if (impl_->callback) {
+    impl_->callback(payload);
+  }
+
   const auto rendered = payload.dump();
 
   const std::scoped_lock lock(impl_->mutex);
@@ -79,4 +85,3 @@ void jsonl_logger::emit(const std::string_view event_name, json payload) const {
 }
 
 }  // namespace terva::core::logging
-

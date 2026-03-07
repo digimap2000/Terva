@@ -1,8 +1,7 @@
 add_library(terva_core STATIC
   src/backend/http_backend.cpp
   src/capability/executor.cpp
-  src/client/http_session.cpp
-  src/client/stdio_session.cpp
+  src/engine/engine.cpp
   src/logging/jsonl_logger.cpp
   src/mcp/runtime.cpp
   src/project/parser.cpp
@@ -25,7 +24,6 @@ target_compile_definitions(terva_core
 target_link_libraries(terva_core
   PUBLIC
     dts::dts
-  PRIVATE
     CURL::libcurl
     terva::protobuf
     terva::project_proto

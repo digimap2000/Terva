@@ -1,6 +1,13 @@
 #include "terva/core/project/parser.hpp"
 
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
 #include "terva/project/v1/project.pb.h"
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
 #include <google/protobuf/io/tokenizer.h>
 #include <google/protobuf/io/zero_copy_stream_impl.h>
@@ -645,9 +652,15 @@ std::expected<project_definition, std::string> load_project_file(
     return std::unexpected(text.error());
   }
 
+  return parse_project_text(*text, path);
+}
+
+std::expected<project_definition, std::string> parse_project_text(
+    const std::string_view text,
+    const std::filesystem::path& source_path) {
   proto::ProjectDefinition project_proto;
-  google::protobuf::io::ArrayInputStream input(text->data(),
-                                               static_cast<int>(text->size()));
+  google::protobuf::io::ArrayInputStream input(text.data(),
+                                               static_cast<int>(text.size()));
   textproto_error_collector errors;
   google::protobuf::TextFormat::Parser parser;
   parser.AllowUnknownField(false);
@@ -662,7 +675,7 @@ std::expected<project_definition, std::string> load_project_file(
     return std::unexpected(std::move(message));
   }
 
-  return convert_project(project_proto, path);
+  return convert_project(project_proto, source_path);
 }
 
 }  // namespace terva::core::project

@@ -5,6 +5,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <string_view>
@@ -13,7 +14,11 @@ namespace terva::core::logging {
 
 class jsonl_logger final {
  public:
-  explicit jsonl_logger(project::logging_options options);
+  using event_callback = std::function<void(const json&)>;
+
+  explicit jsonl_logger(
+      project::logging_options options,
+      event_callback callback = {});
   ~jsonl_logger();
 
   jsonl_logger(const jsonl_logger&) = delete;
@@ -31,4 +36,3 @@ class jsonl_logger final {
 using shared_logger = std::shared_ptr<jsonl_logger>;
 
 }  // namespace terva::core::logging
-

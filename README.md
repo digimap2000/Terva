@@ -1,25 +1,23 @@
 # Terva
 
-Terva is a core-first MCP product scaffold.
+Terva is a core-first product scaffold with a single canonical in-process engine.
 
 `.terva` project files are defined by protobuf schema and authored as protobuf text format for now. The schema lives at [project.proto](/Users/andys/Documents/ajs/Terva/proto/terva/project/v1/project.proto).
 
-The first runnable foundation is intentionally headless:
+The current v1 shape is intentionally simple:
 
-- A shared C++ core owns the `.terva` project model, capability execution, backend integration, structured logs, and MCP runtime.
-- `terva-server` loads a hand-authored `.terva` file and exposes project-driven MCP tools over stdio or localhost Streamable HTTP.
-- `terva-client` exercises the real MCP runtime path over either a spawned stdio server or a localhost HTTP endpoint.
-- A Rust/Tauri desktop shell exists in `apps/desktop/`, but it is not part of the v0 runtime path.
+- A shared C++ core owns the `.terva` project model, validation, capability execution, backend integration, structured logs, and runtime behavior.
+- `terva-client` is a thin direct host over that same C++ engine.
+- The Tauri desktop app links to the C++ core in process through Rust `cxx` bridge code.
+- There is no daemon, RPC layer, stdio control plane, or localhost control service in v1.
 
 The repository is also structured for AI-assisted development from the start, with dedicated space for primers, skills, prompts, and workflow notes.
 
 ## Layout
 
-- `apps/server/` contains `terva-server`.
 - `apps/cli/` contains `terva-client`.
-- `apps/example-backend/` contains a local HTTP JSON fixture backend for the demo project.
 - `apps/desktop/` contains the Tauri single-document workspace shell for `.terva` projects.
-- `core/` contains the project model, validator, backend adapter, executor, logging, and MCP runtime.
+- `core/` contains the project model, validator, backend adapter, executor, logging, and shared engine API.
 - `examples/` contains hand-authored `.terva` project files.
 - `docs/` contains architecture and development notes.
 - `.ai/` contains AI collaboration assets such as primers and skills.
@@ -33,52 +31,40 @@ cmake --preset dev
 cmake --build --preset dev
 ```
 
-### Validate and inspect a project
+### Validate, inspect, and list tools directly
 
 ```sh
-./build/dev/apps/server/terva-server validate examples/demo-volume.terva
-./build/dev/apps/server/terva-server inspect examples/demo-volume.terva
+./build/dev/apps/cli/terva-client validate examples/demo-volume.terva
+./build/dev/apps/cli/terva-client inspect examples/demo-volume.terva
+./build/dev/apps/cli/terva-client tools examples/demo-volume.terva
 ```
 
-### Run the demo backend and call a tool end-to-end
-
-Terminal 1:
+### Call a tool end-to-end from the direct CLI host
 
 ```sh
-./build/dev/apps/example-backend/terva-example-backend
+./build/dev/apps/cli/terva-client call examples/demo-volume.terva audio.set_volume '{"level":42}'
 ```
 
-Terminal 2:
+### Build the desktop app
 
 ```sh
-./build/dev/apps/cli/terva-client tools stdio:examples/demo-volume.terva
-./build/dev/apps/cli/terva-client call stdio:examples/demo-volume.terva audio.set_volume '{"level":42}'
+npm --prefix apps/desktop run tauri build
 ```
 
-### Run the standalone MCP server directly
-
-```sh
-./build/dev/apps/server/terva-server run --stdio examples/demo-volume.terva
-./build/dev/apps/server/terva-server run --listen http://127.0.0.1:7777/mcp examples/demo-volume.terva
-```
-
-The stdio form is intended for a real MCP host or subprocess client. The HTTP form exposes standard MCP over localhost Streamable HTTP on a single endpoint. Structured logs are emitted as JSON lines on `stderr`.
+The desktop app links to the same engine in process through the Rust `cxx` bridge. The desktop shell does not scrape `.terva` files itself anymore; open/summarize/inspect data comes from the shared core.
 
 ## Streamer Example
 
 The repo also includes a real-device project file at [streamer.terva](/Users/andys/Documents/ajs/Terva/streamer.terva) for the known streamer backend at `http://192.168.1.111:15081`.
 
 ```sh
-./build/dev/apps/server/terva-server validate streamer.terva
-./build/dev/apps/server/terva-server inspect streamer.terva
-./build/dev/apps/server/terva-server run --listen http://127.0.0.1:7777/mcp streamer.terva
-./build/dev/apps/cli/terva-client tools http://127.0.0.1:7777/mcp
-./build/dev/apps/cli/terva-client call http://127.0.0.1:7777/mcp get_playback_session '{}'
-./build/dev/apps/cli/terva-client call http://127.0.0.1:7777/mcp get_power_state '{}'
-./build/dev/apps/cli/terva-client call http://127.0.0.1:7777/mcp enter_active '{}'
-./build/dev/apps/cli/terva-client call http://127.0.0.1:7777/mcp get_power_state '{}'
-./build/dev/apps/cli/terva-client call http://127.0.0.1:7777/mcp enter_standby '{}'
-./build/dev/apps/cli/terva-client call http://127.0.0.1:7777/mcp get_power_state '{}'
+./build/dev/apps/cli/terva-client validate streamer.terva
+./build/dev/apps/cli/terva-client inspect streamer.terva
+./build/dev/apps/cli/terva-client tools streamer.terva
+./build/dev/apps/cli/terva-client call streamer.terva get_playback_session '{}'
+./build/dev/apps/cli/terva-client call streamer.terva get_power_state '{}'
+./build/dev/apps/cli/terva-client call streamer.terva enter_active '{}'
+./build/dev/apps/cli/terva-client call streamer.terva enter_standby '{}'
 ```
 
 `get_playback_session` reads `GET /nowplaying`, normalizes the streamer transport state into a stable Terva playback state, derives a concise source name, and converts vendor millisecond positions into seconds while retaining the raw backend payload under `trace`.

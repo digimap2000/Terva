@@ -1,8 +1,12 @@
 import { useEffect, useState } from "react";
 import {
+  closeActiveProject,
   createProjectDocument,
+  drainCoreEvents,
   openProjectDocument,
   openProjectDocumentAtPath,
+  startActiveRuntime,
+  stopActiveRuntime,
   summarizeRecentProjects,
   type ProjectDocument,
   type ProjectSummary,
@@ -25,6 +29,30 @@ export interface RecentProject {
   capability_count: number;
   modified_at_ms: number | null;
   last_opened_at_ms: number;
+}
+
+export type RuntimeState = "stopped" | "starting" | "running" | "stopping" | "error";
+
+export interface RuntimeLogEntry {
+  id: string;
+  event: string;
+  timestamp: string;
+  payload: unknown;
+}
+
+function normalizeLogEntry(payload: unknown): RuntimeLogEntry {
+  const record =
+    payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
+  const event = typeof record.event === "string" ? record.event : "terva.unknown";
+  const timestamp =
+    typeof record.timestamp === "string" ? record.timestamp : new Date().toISOString();
+
+  return {
+    id: `${timestamp}:${event}:${crypto.randomUUID()}`,
+    event,
+    timestamp,
+    payload,
+  };
 }
 
 function readStoredRecentProjects(): StoredRecentProject[] {
@@ -96,6 +124,10 @@ export function useActiveProject() {
   const [recentProjects, setRecentProjects] = useState<RecentProject[]>([]);
   const [recentProjectsLoading, setRecentProjectsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [runtimeState, setRuntimeState] = useState<RuntimeState>("stopped");
+  const [runtimeError, setRuntimeError] = useState<string | null>(null);
+  const [serverUrl, setServerUrl] = useState<string | null>(null);
+  const [logs, setLogs] = useState<RuntimeLogEntry[]>([]);
 
   async function refreshRecentProjects() {
     setRecentProjectsLoading(true);
@@ -127,6 +159,69 @@ export function useActiveProject() {
   useEffect(() => {
     void refreshRecentProjects();
   }, []);
+
+  useEffect(() => {
+    if (!project) {
+      setRuntimeState("stopped");
+      setRuntimeError(null);
+      setServerUrl(null);
+      setLogs([]);
+      return;
+    }
+
+    setRuntimeState("stopped");
+    setRuntimeError(null);
+    setServerUrl(null);
+    setLogs([]);
+
+    let cancelled = false;
+
+    async function refreshLogs() {
+      try {
+        const batch = await drainCoreEvents();
+        if (cancelled || batch.events.length === 0) {
+          return;
+        }
+
+        const normalized = batch.events.map((event) => normalizeLogEntry(event));
+        for (const entry of normalized) {
+          const payload =
+            entry.payload && typeof entry.payload === "object"
+              ? (entry.payload as Record<string, unknown>)
+              : {};
+          if (entry.event === "terva.server_started") {
+            setRuntimeState("running");
+            if (typeof payload.listen_url === "string") {
+              setServerUrl(payload.listen_url);
+            }
+          } else if (
+            entry.event === "terva.server_stopped" ||
+            entry.event === "terva.server_wait_completed"
+          ) {
+            setRuntimeState("stopped");
+          }
+        }
+
+        setLogs((previous) => [...normalized, ...previous].slice(0, 500));
+      } catch (value) {
+        if (cancelled) {
+          return;
+        }
+        const message = value instanceof Error ? value.message : String(value);
+        setRuntimeError(message);
+      }
+    }
+
+    void refreshLogs();
+    const interval = window.setInterval(() => {
+      void refreshLogs();
+    }, 1000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [project]);
 
   async function openProject() {
     setLoading(true);
@@ -197,8 +292,73 @@ export function useActiveProject() {
   }
 
   function closeProject() {
+    void closeActiveProject();
     setProject(null);
     setError(null);
+    setRuntimeState("stopped");
+    setRuntimeError(null);
+    setServerUrl(null);
+    setLogs([]);
+  }
+
+  async function startServer() {
+    if (!project) {
+      return false;
+    }
+
+    setRuntimeState("starting");
+    setRuntimeError(null);
+
+    try {
+      const status = await startActiveRuntime();
+      setRuntimeState("running");
+      setServerUrl(status.listen_url ?? null);
+      const batch = await drainCoreEvents();
+      if (batch.events.length > 0) {
+        setLogs((previous) =>
+          [...batch.events.map((event) => normalizeLogEntry(event)), ...previous].slice(
+            0,
+            500,
+          ),
+        );
+      }
+      return true;
+    } catch (value) {
+      const message = value instanceof Error ? value.message : String(value);
+      setRuntimeState("error");
+      setRuntimeError(message);
+      return false;
+    }
+  }
+
+  async function stopServer() {
+    if (!project) {
+      return false;
+    }
+
+    setRuntimeState("stopping");
+    setRuntimeError(null);
+
+    try {
+      await stopActiveRuntime();
+      setRuntimeState("stopped");
+      setServerUrl(null);
+      const batch = await drainCoreEvents();
+      if (batch.events.length > 0) {
+        setLogs((previous) =>
+          [...batch.events.map((event) => normalizeLogEntry(event)), ...previous].slice(
+            0,
+            500,
+          ),
+        );
+      }
+      return true;
+    } catch (value) {
+      const message = value instanceof Error ? value.message : String(value);
+      setRuntimeState("error");
+      setRuntimeError(message);
+      return false;
+    }
   }
 
   return {
@@ -207,9 +367,15 @@ export function useActiveProject() {
     recentProjects,
     recentProjectsLoading,
     error,
+    runtimeState,
+    runtimeError,
+    serverUrl,
+    logs,
     openProject,
     createProject,
     openRecentProject,
     closeProject,
+    startServer,
+    stopServer,
   };
 }

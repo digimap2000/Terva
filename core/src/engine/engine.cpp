@@ -1,0 +1,499 @@
+#include "terva/core/engine/engine.hpp"
+
+#include "terva/core/backend/backend.hpp"
+#include "terva/core/capability/executor.hpp"
+#include "terva/core/logging/jsonl_logger.hpp"
+#include "terva/core/mcp/runtime.hpp"
+#include "terva/core/project/parser.hpp"
+#include "terva/core/project/validator.hpp"
+
+#include <fstream>
+#include <mutex>
+#include <memory>
+#include <optional>
+#include <sstream>
+#include <thread>
+#include <utility>
+
+namespace terva::core::engine {
+namespace {
+
+struct loaded_document final {
+  std::filesystem::path source_path;
+  std::string contents;
+  std::optional<project::project_definition> project;
+  std::optional<std::string> parse_error;
+  std::vector<project::validation_issue> validation_issues;
+};
+
+struct managed_http_server final {
+  mcp::runtime runtime;
+  dts::mcp::server server;
+  std::string listen_url;
+  std::jthread wait_thread;
+};
+
+[[nodiscard]] std::expected<std::string, std::string> read_file(
+    const std::filesystem::path& path) {
+  std::ifstream stream(path);
+  if (!stream) {
+    return std::unexpected("unable to open project file: " + path.string());
+  }
+
+  std::stringstream buffer;
+  buffer << stream.rdbuf();
+  return buffer.str();
+}
+
+[[nodiscard]] std::string file_name_for_path(const std::filesystem::path& path) {
+  return path.filename().empty() ? path.string() : path.filename().string();
+}
+
+[[nodiscard]] std::string default_display_name_for_path(
+    const std::filesystem::path& path) {
+  if (const auto stem = path.stem().string(); !stem.empty()) {
+    return stem;
+  }
+  return file_name_for_path(path);
+}
+
+[[nodiscard]] json validation_payload(const loaded_document& document) {
+  json issues = json::array();
+  if (document.parse_error.has_value()) {
+    issues.push_back(json{
+        {"path", "project"},
+        {"message", *document.parse_error},
+    });
+  }
+  for (const auto& issue : document.validation_issues) {
+    issues.push_back(json(issue));
+  }
+  return json{
+      {"ok", issues.empty()},
+      {"issues", std::move(issues)},
+  };
+}
+
+[[nodiscard]] json action_payload(
+    const project::http_action_definition& action) {
+  json query = json::object();
+  for (const auto& [name, value] : action.query_parameters) {
+    query[name] = value;
+  }
+
+  return json{
+      {"id", action.id},
+      {"description", action.description},
+      {"backend_id", action.backend_id},
+      {"method", project::to_string(action.method)},
+      {"path", action.path_template},
+      {"query", std::move(query)},
+      {"success_statuses", action.success_statuses},
+  };
+}
+
+[[nodiscard]] json expectation_payload(
+    const project::value_expectation& expectation) {
+  json payload{
+      {"json_pointer", expectation.json_pointer},
+  };
+  if (expectation.equals.has_value()) {
+    payload["equals"] = *expectation.equals;
+  }
+  if (expectation.equals_input.has_value()) {
+    payload["equals_input"] = *expectation.equals_input;
+  }
+  return payload;
+}
+
+[[nodiscard]] json verification_payload(
+    const project::verification_definition& verification) {
+  return json{
+      {"action_id", verification.action_id},
+      {"expect", expectation_payload(verification.expect)},
+      {"attempts", verification.attempts},
+      {"delay_ms", verification.delay_ms},
+      {"success_delay_ms", verification.success_delay_ms},
+  };
+}
+
+[[nodiscard]] json inspection_payload(const project::project_definition& project) {
+  json backends = json::array();
+  for (const auto& backend : project.backends) {
+    backends.push_back(json{
+        {"id", backend.id},
+        {"type", project::to_string(backend.type)},
+        {"base_url", backend.base_url},
+    });
+  }
+
+  json capabilities = json::array();
+  for (const auto& capability : project.capabilities) {
+    json actions = json::array();
+    for (const auto& action : capability.actions) {
+      actions.push_back(action_payload(action));
+    }
+
+    json tool_schema_keys = json::array();
+    const auto properties =
+        capability.input_schema.value("properties", json::object());
+    for (const auto& [name, _] : properties.items()) {
+      tool_schema_keys.push_back(name);
+    }
+
+    json capability_payload{
+        {"id", capability.id},
+        {"tool_name", capability.tool_name},
+        {"description", capability.description},
+        {"input_schema", capability.input_schema},
+        {"input_schema_keys", std::move(tool_schema_keys)},
+        {"main_action_id", capability.main_action_id},
+        {"actions", std::move(actions)},
+    };
+    if (capability.verification.has_value()) {
+      capability_payload["verification"] =
+          verification_payload(*capability.verification);
+    }
+    capabilities.push_back(std::move(capability_payload));
+  }
+
+  return json{
+      {"name", project.name},
+      {"description", project.description.value_or("")},
+      {"source_path", project.source_path.string()},
+      {"backends", std::move(backends)},
+      {"capabilities", std::move(capabilities)},
+  };
+}
+
+[[nodiscard]] json document_payload(const loaded_document& document) {
+  const auto display_name =
+      document.project.has_value() ? document.project->name
+                                   : default_display_name_for_path(document.source_path);
+
+  json payload{
+      {"path", document.source_path.string()},
+      {"file_name", file_name_for_path(document.source_path)},
+      {"display_name", display_name},
+      {"contents", document.contents},
+      {"parse_error", document.parse_error.value_or("")},
+      {"validation", validation_payload(document)},
+  };
+
+  if (document.project.has_value()) {
+    payload["description"] = document.project->description.value_or("");
+    payload["backend_count"] = document.project->backends.size();
+    payload["capability_count"] = document.project->capabilities.size();
+    payload["inspection"] = inspection_payload(*document.project);
+  } else {
+    payload["description"] = "";
+    payload["backend_count"] = 0;
+    payload["capability_count"] = 0;
+  }
+
+  return payload;
+}
+
+[[nodiscard]] json summary_payload(const loaded_document& document) {
+  json payload = document_payload(document);
+  payload.erase("contents");
+  payload.erase("inspection");
+  return payload;
+}
+
+[[nodiscard]] std::expected<loaded_document, std::string> parse_document(
+    const std::filesystem::path& source_path,
+    std::string contents) {
+  loaded_document document{
+      .source_path = source_path,
+      .contents = std::move(contents),
+  };
+
+  auto parsed = project::parse_project_text(document.contents, source_path);
+  if (!parsed) {
+    document.parse_error = parsed.error();
+    return document;
+  }
+
+  document.project = std::move(*parsed);
+  document.validation_issues = project::validate_project(*document.project);
+  return document;
+}
+
+[[nodiscard]] json tool_list_payload(const project::project_definition& project) {
+  json tools = json::array();
+  for (const auto& capability : project.capabilities) {
+    tools.push_back(json{
+        {"capability_id", capability.id},
+        {"tool_name", capability.tool_name},
+        {"description", capability.description},
+        {"input_schema", capability.input_schema},
+    });
+  }
+  return json{{"tools", std::move(tools)}};
+}
+
+}  // namespace
+
+struct engine::impl final {
+  std::optional<loaded_document> document;
+  mutable std::mutex events_mutex;
+  std::vector<json> events;
+  std::shared_ptr<logging::jsonl_logger> runtime_logger;
+  std::unique_ptr<backend::backend_registry> backends;
+  std::unique_ptr<capability::capability_executor> executor;
+  std::unique_ptr<managed_http_server> http_server;
+
+  void push_event(json payload) {
+    const std::scoped_lock lock(events_mutex);
+    events.push_back(std::move(payload));
+  }
+
+  void record_event(std::string_view event_name, json payload = json::object()) {
+    if (!payload.is_object()) {
+      payload = json{{"payload", std::move(payload)}};
+    }
+    payload["event"] = event_name;
+    push_event(std::move(payload));
+  }
+
+  void reset_runtime() {
+    if (http_server) {
+      http_server->server.stop();
+      if (http_server->wait_thread.joinable()) {
+        http_server->wait_thread.join();
+      }
+      http_server.reset();
+    }
+    executor.reset();
+    backends.reset();
+    runtime_logger.reset();
+  }
+};
+
+engine::engine() : impl_(std::make_unique<impl>()) {}
+engine::~engine() = default;
+engine::engine(engine&&) noexcept = default;
+engine& engine::operator=(engine&&) noexcept = default;
+
+std::expected<json, std::string> engine::open_document(
+    const std::filesystem::path& path) {
+  auto contents = read_file(path);
+  if (!contents) {
+    return std::unexpected(contents.error());
+  }
+  return load_document_contents(path, std::move(*contents));
+}
+
+std::expected<json, std::string> engine::load_document_contents(
+    const std::filesystem::path& source_path,
+    std::string contents) {
+  if (!impl_) {
+    return std::unexpected("engine is not initialized");
+  }
+
+  auto document = parse_document(source_path, std::move(contents));
+  if (!document) {
+    return std::unexpected(document.error());
+  }
+
+  impl_->document = std::move(*document);
+  impl_->reset_runtime();
+  impl_->record_event(
+      "terva.document_loaded",
+      json{
+          {"path", impl_->document->source_path.string()},
+          {"parse_ok", !impl_->document->parse_error.has_value()},
+          {"validation_ok", impl_->document->validation_issues.empty()},
+      });
+  return document_payload(*impl_->document);
+}
+
+std::expected<json, std::string> engine::update_document_contents(
+    std::string contents) {
+  if (!impl_ || !impl_->document.has_value()) {
+    return std::unexpected("no active document is loaded");
+  }
+
+  return load_document_contents(impl_->document->source_path, std::move(contents));
+}
+
+std::expected<json, std::string> engine::close_document() {
+  if (!impl_) {
+    return std::unexpected("engine is not initialized");
+  }
+
+  impl_->reset_runtime();
+  impl_->document.reset();
+  impl_->record_event("terva.document_closed");
+  return json{{"closed", true}};
+}
+
+std::expected<json, std::string> engine::summarize_project_file(
+    const std::filesystem::path& path) const {
+  auto contents = read_file(path);
+  if (!contents) {
+    return std::unexpected(contents.error());
+  }
+
+  auto document = parse_document(path, std::move(*contents));
+  if (!document) {
+    return std::unexpected(document.error());
+  }
+  return summary_payload(*document);
+}
+
+std::expected<json, std::string> engine::validate_active_document() const {
+  if (!impl_ || !impl_->document.has_value()) {
+    return std::unexpected("no active document is loaded");
+  }
+  return validation_payload(*impl_->document);
+}
+
+std::expected<json, std::string> engine::inspect_active_document() const {
+  if (!impl_ || !impl_->document.has_value()) {
+    return std::unexpected("no active document is loaded");
+  }
+  if (!impl_->document->project.has_value()) {
+    return std::unexpected(
+        impl_->document->parse_error.value_or("active document could not be parsed"));
+  }
+  return inspection_payload(*impl_->document->project);
+}
+
+std::expected<json, std::string> engine::start_server() {
+  if (!impl_ || !impl_->document.has_value()) {
+    return std::unexpected("no active document is loaded");
+  }
+  if (!impl_->document->project.has_value()) {
+    return std::unexpected(
+        impl_->document->parse_error.value_or("active document could not be parsed"));
+  }
+  if (!impl_->document->validation_issues.empty()) {
+    return std::unexpected("active document has validation issues");
+  }
+  if (impl_->http_server && impl_->http_server->server.running()) {
+    return json{
+        {"running", true},
+        {"listen_url", impl_->http_server->listen_url},
+        {"tool_count", impl_->document->project->capabilities.size()},
+    };
+  }
+
+  auto callback = [state = impl_.get()](const json& payload) {
+    state->push_event(payload);
+  };
+  impl_->runtime_logger = std::make_shared<logging::jsonl_logger>(
+      impl_->document->project->logging, std::move(callback));
+
+  mcp::runtime runtime(*impl_->document->project, impl_->runtime_logger);
+  const auto listen = mcp::http_listen_options{
+      .bind_address = "127.0.0.1",
+      .port = 7777,
+      .endpoint_path = "/mcp",
+      .allowed_origins = {
+          "http://127.0.0.1:7777",
+          "http://localhost:7777",
+      },
+  };
+  auto started_server = runtime.start_http_server(listen);
+  if (!started_server) {
+    impl_->runtime_logger.reset();
+    return std::unexpected(started_server.error());
+  }
+
+  impl_->http_server = std::make_unique<managed_http_server>(managed_http_server{
+      .runtime = std::move(runtime),
+      .server = std::move(started_server->server),
+      .listen_url = started_server->listen_url,
+  });
+  impl_->http_server->wait_thread = std::jthread(
+      [state = impl_.get(), server = &impl_->http_server->server,
+       listen_url = impl_->http_server->listen_url]() mutable {
+        server->wait();
+        state->record_event(
+            "terva.server_wait_completed",
+            json{{"listen_url", listen_url}});
+      });
+
+  impl_->record_event(
+      "terva.runtime_started",
+      json{{"path", impl_->document->source_path.string()},
+           {"listen_url", impl_->http_server->listen_url}});
+
+  return json{
+      {"running", true},
+      {"listen_url", impl_->http_server->listen_url},
+      {"tool_count", impl_->document->project->capabilities.size()},
+  };
+}
+
+std::expected<json, std::string> engine::stop_server() {
+  if (!impl_) {
+    return std::unexpected("engine is not initialized");
+  }
+  auto previous_listen_url = std::string{};
+  if (impl_->http_server) {
+    previous_listen_url = impl_->http_server->listen_url;
+  }
+  impl_->reset_runtime();
+  impl_->record_event(
+      "terva.runtime_stopped",
+      json{{"listen_url", previous_listen_url}});
+  return json{{"running", false}, {"listen_url", previous_listen_url}};
+}
+
+std::expected<json, std::string> engine::list_tools() {
+  if (!impl_ || !impl_->document || !impl_->document->project) {
+    return std::unexpected("active document is not available");
+  }
+  if (!impl_->executor) {
+    auto callback = [state = impl_.get()](const json& payload) {
+      state->push_event(payload);
+    };
+    impl_->runtime_logger = std::make_shared<logging::jsonl_logger>(
+        impl_->document->project->logging, std::move(callback));
+    impl_->backends = std::make_unique<backend::backend_registry>(
+        impl_->document->project->backends);
+    impl_->executor = std::make_unique<capability::capability_executor>(
+        *impl_->document->project,
+        *impl_->backends,
+        impl_->runtime_logger);
+  }
+
+  return tool_list_payload(*impl_->document->project);
+}
+
+std::expected<json, std::string> engine::invoke_tool(
+    const std::string_view tool_name,
+    const json& input) {
+  const auto ready = list_tools();
+  if (!ready) {
+    return std::unexpected(ready.error());
+  }
+  if (!impl_ || !impl_->executor) {
+    return std::unexpected("active runtime is not available");
+  }
+
+  auto result = impl_->executor->execute_tool(tool_name, input);
+  if (!result) {
+    return std::unexpected(result.error());
+  }
+  return json(*result);
+}
+
+json engine::drain_events() {
+  if (!impl_) {
+    return json::array();
+  }
+
+  json events = json::array();
+  const std::scoped_lock lock(impl_->events_mutex);
+  for (auto& event : impl_->events) {
+    events.push_back(std::move(event));
+  }
+  impl_->events.clear();
+  return events;
+}
+
+}  // namespace terva::core::engine

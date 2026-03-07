@@ -1,16 +1,203 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::UNIX_EPOCH;
 
-use serde::{Deserialize, Serialize};
+use cxx::UniquePtr;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
+use crate::bridge::ffi::{new_desktop_core, DesktopCore};
 use crate::error::TervaError;
+
+pub struct CoreBridge {
+    core: Mutex<UniquePtr<DesktopCore>>,
+}
+
+unsafe impl Send for CoreBridge {}
+unsafe impl Sync for CoreBridge {}
+
+impl CoreBridge {
+    pub fn new() -> Self {
+        Self {
+            core: Mutex::new(new_desktop_core()),
+        }
+    }
+
+    fn lock(&self) -> Result<std::sync::MutexGuard<'_, UniquePtr<DesktopCore>>, TervaError> {
+        self.core
+            .lock()
+            .map_err(|_| TervaError::Project("Core bridge lock was poisoned".to_string()))
+    }
+
+    pub fn open_document(&self, path: &Path) -> Result<ProjectDocument, TervaError> {
+        let mut core = self.lock()?;
+        let rendered_path = path.display().to_string();
+        let raw = core.pin_mut().open_document(&rendered_path);
+        decode_payload::<ProjectDocument>(&raw)
+    }
+
+    pub fn close_document(&self) -> Result<(), TervaError> {
+        let mut core = self.lock()?;
+        let raw = core.pin_mut().close_document();
+        let _: serde_json::Value = decode_payload(&raw)?;
+        Ok(())
+    }
+
+    pub fn summarize_document(&self, path: &Path) -> Result<ProjectSummary, TervaError> {
+        let core = self.lock()?;
+        let rendered_path = path.display().to_string();
+        let raw = core.summarize_document(&rendered_path);
+        let mut summary: ProjectSummary = decode_payload(&raw)?;
+        summary.modified_at_ms = std::fs::metadata(path)
+            .ok()
+            .and_then(|value| value.modified().ok())
+            .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
+            .map(|value| value.as_millis() as u64);
+        Ok(summary)
+    }
+
+    pub fn validate_active_document(&self) -> Result<ValidationResult, TervaError> {
+        let core = self.lock()?;
+        let raw = core.validate_active_document();
+        decode_payload(&raw)
+    }
+
+    pub fn inspect_active_document(&self) -> Result<ProjectInspection, TervaError> {
+        let core = self.lock()?;
+        let raw = core.inspect_active_document();
+        decode_payload(&raw)
+    }
+
+    pub fn list_tools(&self) -> Result<ToolList, TervaError> {
+        let mut core = self.lock()?;
+        let raw = core.pin_mut().list_tools();
+        decode_payload(&raw)
+    }
+
+    pub fn start_runtime(&self) -> Result<RuntimeStatusPayload, TervaError> {
+        let mut core = self.lock()?;
+        let raw = core.pin_mut().start_runtime();
+        decode_payload(&raw)
+    }
+
+    pub fn stop_runtime(&self) -> Result<RuntimeStatusPayload, TervaError> {
+        let mut core = self.lock()?;
+        let raw = core.pin_mut().stop_runtime();
+        decode_payload(&raw)
+    }
+
+    pub fn invoke_tool(
+        &self,
+        tool_name: &str,
+        input_json: &str,
+    ) -> Result<serde_json::Value, TervaError> {
+        let mut core = self.lock()?;
+        let raw = core.pin_mut().invoke_tool(tool_name, input_json);
+        decode_payload(&raw)
+    }
+
+    pub fn drain_events(&self) -> Result<EventBatch, TervaError> {
+        let mut core = self.lock()?;
+        let raw = core.pin_mut().drain_events();
+        decode_payload(&raw)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct CoreEnvelope<T> {
+    ok: bool,
+    payload: Option<T>,
+    error: Option<String>,
+}
+
+fn decode_payload<T: DeserializeOwned>(raw: &str) -> Result<T, TervaError> {
+    let envelope: CoreEnvelope<T> = serde_json::from_str(raw).map_err(|error| {
+        TervaError::Project(format!("Failed to decode core response: {error}"))
+    })?;
+    if !envelope.ok {
+        return Err(TervaError::Project(
+            envelope
+                .error
+                .unwrap_or_else(|| "Core call failed without an error".to_string()),
+        ));
+    }
+    envelope
+        .payload
+        .ok_or_else(|| TervaError::Project("Core response was missing a payload".to_string()))
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidationIssue {
+    pub path: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidationResult {
+    pub ok: bool,
+    pub issues: Vec<ValidationIssue>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InspectionAction {
+    pub id: String,
+    pub description: String,
+    pub backend_id: String,
+    pub method: String,
+    pub path: String,
+    pub query: BTreeMap<String, String>,
+    pub success_statuses: Vec<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InspectionVerification {
+    pub action_id: String,
+    pub attempts: i32,
+    pub delay_ms: i32,
+    pub success_delay_ms: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InspectionBackend {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub backend_type: String,
+    pub base_url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InspectionCapability {
+    pub id: String,
+    pub tool_name: String,
+    pub description: String,
+    pub input_schema: serde_json::Value,
+    pub input_schema_keys: Vec<String>,
+    pub main_action_id: String,
+    pub actions: Vec<InspectionAction>,
+    pub verification: Option<InspectionVerification>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectInspection {
+    pub name: String,
+    pub description: String,
+    pub source_path: String,
+    pub backends: Vec<InspectionBackend>,
+    pub capabilities: Vec<InspectionCapability>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectDocument {
     pub path: String,
     pub file_name: String,
     pub display_name: String,
+    pub description: String,
     pub contents: String,
+    pub parse_error: String,
+    pub backend_count: usize,
+    pub capability_count: usize,
+    pub validation: ValidationResult,
+    pub inspection: Option<ProjectInspection>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -18,43 +205,37 @@ pub struct ProjectSummary {
     pub path: String,
     pub file_name: String,
     pub display_name: String,
-    pub description: Option<String>,
-    pub backend_count: u32,
-    pub capability_count: u32,
+    pub description: String,
+    pub parse_error: String,
+    pub backend_count: usize,
+    pub capability_count: usize,
+    pub validation: ValidationResult,
     pub modified_at_ms: Option<u64>,
 }
 
-#[derive(Debug, Clone)]
-struct ProjectMetadata {
-    display_name: String,
-    description: Option<String>,
-    backend_count: u32,
-    capability_count: u32,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolSummary {
+    pub capability_id: String,
+    pub tool_name: String,
+    pub description: String,
+    pub input_schema: serde_json::Value,
 }
 
-fn extract_scalar_field(contents: &str, field_name: &str) -> Option<String> {
-    for line in contents.lines() {
-        let trimmed = line.trim();
-        if !trimmed.starts_with(field_name) {
-            continue;
-        }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolList {
+    pub tools: Vec<ToolSummary>,
+}
 
-        let prefix = format!("{field_name}:");
-        let value = trimmed.trim_start_matches(&prefix).trim();
-        if value.is_empty() {
-            continue;
-        }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RuntimeStatusPayload {
+    pub running: bool,
+    pub tool_count: Option<usize>,
+    pub listen_url: Option<String>,
+}
 
-        if let Some(rest) = value.strip_prefix('"') {
-            if let Some(end_quote) = rest.find('"') {
-                return Some(rest[..end_quote].to_string());
-            }
-        }
-
-        return Some(value.to_string());
-    }
-
-    None
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventBatch {
+    pub events: Vec<serde_json::Value>,
 }
 
 fn validate_project_extension(path: &Path) -> Result<(), TervaError> {
@@ -71,11 +252,16 @@ fn validate_project_extension(path: &Path) -> Result<(), TervaError> {
     Ok(())
 }
 
-fn file_name_for_path(path: &Path) -> String {
-    path.file_name()
+fn ensure_terva_extension(mut path: PathBuf) -> PathBuf {
+    let has_extension = path
+        .extension()
         .and_then(|value| value.to_str())
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(|| path.display().to_string())
+        .map(|value| value == "terva")
+        .unwrap_or(false);
+    if !has_extension {
+        path.set_extension("terva");
+    }
+    path
 }
 
 fn title_case_file_stem(path: &Path) -> String {
@@ -101,87 +287,6 @@ fn title_case_file_stem(path: &Path) -> String {
         })
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "New Project".to_string())
-}
-
-fn extract_project_metadata(path: &Path, contents: &str) -> ProjectMetadata {
-    let file_name = file_name_for_path(path);
-    let display_name = extract_scalar_field(contents, "name").unwrap_or_else(|| {
-        path.file_stem()
-            .and_then(|value| value.to_str())
-            .map(ToOwned::to_owned)
-            .unwrap_or_else(|| file_name.clone())
-    });
-
-    let description = extract_scalar_field(contents, "description");
-    let backend_count = contents
-        .lines()
-        .filter(|line| line.trim().starts_with("backends {"))
-        .count() as u32;
-    let capability_count = contents
-        .lines()
-        .filter(|line| line.trim().starts_with("capabilities {"))
-        .count() as u32;
-
-    ProjectMetadata {
-        display_name,
-        description,
-        backend_count,
-        capability_count,
-    }
-}
-
-async fn read_project_document_from_path(path: &Path) -> Result<ProjectDocument, TervaError> {
-    validate_project_extension(path)?;
-
-    let contents = tokio::fs::read_to_string(path)
-        .await
-        .map_err(|error| TervaError::Project(format!("Failed to read project: {error}")))?;
-
-    let metadata = extract_project_metadata(path, &contents);
-
-    Ok(ProjectDocument {
-        path: path.display().to_string(),
-        file_name: file_name_for_path(path),
-        display_name: metadata.display_name,
-        contents,
-    })
-}
-
-async fn read_project_summary_from_path(path: &Path) -> Result<ProjectSummary, TervaError> {
-    validate_project_extension(path)?;
-
-    let contents = tokio::fs::read_to_string(path)
-        .await
-        .map_err(|error| TervaError::Project(format!("Failed to read project: {error}")))?;
-    let metadata = extract_project_metadata(path, &contents);
-    let modified_at_ms = tokio::fs::metadata(path)
-        .await
-        .ok()
-        .and_then(|value| value.modified().ok())
-        .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
-        .map(|value| value.as_millis() as u64);
-
-    Ok(ProjectSummary {
-        path: path.display().to_string(),
-        file_name: file_name_for_path(path),
-        display_name: metadata.display_name,
-        description: metadata.description,
-        backend_count: metadata.backend_count,
-        capability_count: metadata.capability_count,
-        modified_at_ms,
-    })
-}
-
-fn ensure_terva_extension(mut path: PathBuf) -> PathBuf {
-    let has_extension = path
-        .extension()
-        .and_then(|value| value.to_str())
-        .map(|value| value == "terva")
-        .unwrap_or(false);
-    if !has_extension {
-        path.set_extension("terva");
-    }
-    path
 }
 
 fn starter_project_contents(path: &Path) -> String {
@@ -226,7 +331,7 @@ capabilities {{
     )
 }
 
-pub async fn pick_project_document() -> Result<Option<ProjectDocument>, TervaError> {
+pub async fn pick_project_document(bridge: &CoreBridge) -> Result<Option<ProjectDocument>, TervaError> {
     let handle = rfd::AsyncFileDialog::new()
         .add_filter("Terva project", &["terva"])
         .pick_file()
@@ -236,15 +341,20 @@ pub async fn pick_project_document() -> Result<Option<ProjectDocument>, TervaErr
         return Ok(None);
     };
 
-    let document = read_project_document_from_path(handle.path()).await?;
+    let document = bridge.open_document(handle.path())?;
     Ok(Some(document))
 }
 
-pub async fn open_project_document_at_path(path: String) -> Result<ProjectDocument, TervaError> {
-    read_project_document_from_path(Path::new(&path)).await
+pub fn open_project_document_at_path(
+    bridge: &CoreBridge,
+    path: String,
+) -> Result<ProjectDocument, TervaError> {
+    let path = PathBuf::from(path);
+    validate_project_extension(&path)?;
+    bridge.open_document(&path)
 }
 
-pub async fn create_project_document() -> Result<Option<ProjectDocument>, TervaError> {
+pub async fn create_project_document(bridge: &CoreBridge) -> Result<Option<ProjectDocument>, TervaError> {
     let handle = rfd::AsyncFileDialog::new()
         .set_file_name("new-project.terva")
         .add_filter("Terva project", &["terva"])
@@ -262,11 +372,14 @@ pub async fn create_project_document() -> Result<Option<ProjectDocument>, TervaE
         .await
         .map_err(|error| TervaError::Project(format!("Failed to create project: {error}")))?;
 
-    let document = read_project_document_from_path(&path).await?;
+    let document = bridge.open_document(&path)?;
     Ok(Some(document))
 }
 
-pub async fn summarize_recent_projects(paths: Vec<String>) -> Vec<ProjectSummary> {
+pub fn summarize_recent_projects(
+    bridge: &CoreBridge,
+    paths: Vec<String>,
+) -> Vec<ProjectSummary> {
     let mut summaries = Vec::new();
 
     for path in paths {
@@ -274,7 +387,7 @@ pub async fn summarize_recent_projects(paths: Vec<String>) -> Vec<ProjectSummary
         if !path.exists() {
             continue;
         }
-        if let Ok(summary) = read_project_summary_from_path(&path).await {
+        if let Ok(summary) = bridge.summarize_document(&path) {
             summaries.push(summary);
         }
     }

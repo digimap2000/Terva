@@ -26,8 +26,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-option(TERVA_BUILD_SERVER "Build the Terva MCP server" ON)
-option(TERVA_BUILD_CLI "Build the Terva CLI client" ON)
+if(APPLE AND NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET)
+  set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS deployment target")
+endif()
+
+option(TERVA_BUILD_SERVER "Build the deprecated Terva MCP server" OFF)
+option(TERVA_BUILD_CLI "Build the Terva CLI host" ON)
 option(TERVA_BUILD_EXAMPLES "Build example backends and demo assets" ON)
 
 add_library(terva_protobuf INTERFACE)

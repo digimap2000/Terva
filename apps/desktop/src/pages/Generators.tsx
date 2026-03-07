@@ -1,14 +1,13 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
   ChevronDown,
+  DatabaseZap,
   EllipsisVertical,
   FileCode2,
   Layers,
   NotebookTabs,
   PanelLeftClose,
   PanelLeftOpen,
-  Plus,
-  Wrench,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -31,72 +30,22 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-
-interface WorkspaceItem {
-  id: string;
-  name: string;
-  summary: string;
-}
-
-const INITIAL_CAPABILITIES: WorkspaceItem[] = [
-  {
-    id: "power",
-    name: "Streamer power control",
-    summary: "Verified active and standby transitions for the real device.",
-  },
-  {
-    id: "session",
-    name: "Playback session readback",
-    summary: "Normalized session output built from the streamer HTTP API.",
-  },
-];
-
-const INITIAL_BACKENDS: WorkspaceItem[] = [
-  {
-    id: "streamer",
-    name: "streamer",
-    summary: "Explicit localhost HTTP backend mapping to the target product.",
-  },
-];
-
-const INITIAL_PRIMERS: WorkspaceItem[] = [
-  {
-    id: "cpp",
-    name: "C++ core primer",
-    summary: "Deterministic execution, narrow APIs, and DTS-first integration.",
-  },
-  {
-    id: "rust",
-    name: "Rust desktop primer",
-    summary: "Thin Tauri commands and no business logic in the shell.",
-  },
-];
+import type { InspectionCapability, ProjectDocument } from "@/lib/tauri";
 
 const actionButtonClass =
   "flex size-5 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground";
 
 interface SectionHeadingProps {
   title: string;
-  onAdd?: () => void;
 }
 
-function SectionHeading({ title, onAdd }: SectionHeadingProps) {
+function SectionHeading({ title }: SectionHeadingProps) {
   return (
     <div className="group/heading flex h-8 items-center gap-1 rounded-md px-2 transition-colors hover:bg-secondary/50">
       <CollapsibleTrigger className="flex flex-1 items-center gap-1.5 text-sm">
         <ChevronDown className="size-3 transition-transform group-data-[state=closed]/collapsible:-rotate-90" />
         <CapLabel className="font-medium">{title}</CapLabel>
       </CollapsibleTrigger>
-      {onAdd ? (
-        <button
-          type="button"
-          title={`Add ${title.toLowerCase()}`}
-          onClick={onAdd}
-          className={cn(actionButtonClass, "opacity-0 group-hover/heading:opacity-100")}
-        >
-          <Plus className="size-4" />
-        </button>
-      ) : null}
       <button
         type="button"
         title="More options"
@@ -173,13 +122,26 @@ function SummaryCard({
   );
 }
 
-export function Generators() {
-  const [capabilities, setCapabilities] = useState(INITIAL_CAPABILITIES);
-  const [selectedId, setSelectedId] = useState(
-    INITIAL_CAPABILITIES[0]?.id ?? "",
-  );
+function capabilitySummary(capability: InspectionCapability) {
+  return `${capability.actions.length} action${
+    capability.actions.length === 1 ? "" : "s"
+  } · main ${capability.main_action_id}`;
+}
+
+interface GeneratorsProps {
+  project: ProjectDocument;
+}
+
+export function Generators({ project }: GeneratorsProps) {
+  const capabilities = project.inspection?.capabilities ?? [];
+  const backends = project.inspection?.backends ?? [];
+  const [selectedId, setSelectedId] = useState(capabilities[0]?.id ?? "");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarSize] = useState(getSavedSidebarSize);
+
+  const selectedCapability = useMemo(() => {
+    return capabilities.find((item) => item.id === selectedId) ?? capabilities[0] ?? null;
+  }, [capabilities, selectedId]);
 
   const handleLayoutChanged = useCallback((layout: Record<string, number>) => {
     const size = layout["sidebar"];
@@ -187,20 +149,6 @@ export function Generators() {
       localStorage.setItem(SIDEBAR_STORAGE_KEY, String(size));
     }
   }, []);
-
-  function handleAddCapability() {
-    const id = crypto.randomUUID();
-    const draft: WorkspaceItem = {
-      id,
-      name: `Draft capability ${capabilities.length + 1}`,
-      summary: "Placeholder for the next explicit Terva capability.",
-    };
-    setCapabilities((previous) => [...previous, draft]);
-    setSelectedId(id);
-  }
-
-  const selectedCapability =
-    capabilities.find((item) => item.id === selectedId) ?? capabilities[0];
 
   return (
     <ResizablePanelGroup
@@ -222,21 +170,21 @@ export function Generators() {
           <div className="flex flex-col gap-0 p-3">
             <span className="text-sm font-medium">Project Workbench</span>
             <span className="text-xs text-muted-foreground">
-              Reusable sidebar and panel layout for a single `.terva` document
+              Live document structure from the shared C++ core
             </span>
           </div>
           <ScrollArea className="flex-1">
             <div className="space-y-1 px-1">
               <Collapsible defaultOpen className="group/collapsible">
-                <SectionHeading title="Capabilities" onAdd={handleAddCapability} />
+                <SectionHeading title="Capabilities" />
                 <CollapsibleContent>
                   <div className="ml-3 space-y-0.5 border-l pl-2">
                     {capabilities.map((capability) => (
                       <MenuItem
                         key={capability.id}
-                        label={capability.name}
-                        summary={capability.summary}
-                        isActive={selectedId === capability.id}
+                        label={capability.tool_name}
+                        summary={capabilitySummary(capability)}
+                        isActive={selectedCapability?.id === capability.id}
                         onClick={() => setSelectedId(capability.id)}
                       />
                     ))}
@@ -248,26 +196,11 @@ export function Generators() {
                 <SectionHeading title="Backends" />
                 <CollapsibleContent>
                   <div className="ml-3 space-y-0.5 border-l pl-2">
-                    {INITIAL_BACKENDS.map((backend) => (
+                    {backends.map((backend) => (
                       <MenuItem
                         key={backend.id}
-                        label={backend.name}
-                        summary={backend.summary}
-                      />
-                    ))}
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
-
-              <Collapsible defaultOpen className="group/collapsible">
-                <SectionHeading title="Primers" />
-                <CollapsibleContent>
-                  <div className="ml-3 space-y-0.5 border-l pl-2">
-                    {INITIAL_PRIMERS.map((primer) => (
-                      <MenuItem
-                        key={primer.id}
-                        label={primer.name}
-                        summary={primer.summary}
+                        label={backend.id}
+                        summary={`${backend.backend_type} · ${backend.base_url}`}
                       />
                     ))}
                   </div>
@@ -280,117 +213,164 @@ export function Generators() {
 
       <ResizableHandle />
 
-      <ResizablePanel id="content">
-        <Tabs defaultValue="overview" className="flex h-full flex-col overflow-hidden">
-          <div className="flex shrink-0 items-center gap-1 px-2 pt-1">
-            <button
-              type="button"
-              onClick={() => setSidebarOpen((previous) => !previous)}
-              className="flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-              title={sidebarOpen ? "Close sidebar" : "Open sidebar"}
-            >
-              {sidebarOpen ? (
-                <PanelLeftClose className="size-4" />
-              ) : (
-                <PanelLeftOpen className="size-4" />
-              )}
-            </button>
-            <TabsList variant="line" className="ml-1">
-              <TabsTrigger value="overview">Overview</TabsTrigger>
-              <TabsTrigger value="model">Model</TabsTrigger>
-              <TabsTrigger value="notes">Notes</TabsTrigger>
-            </TabsList>
+      <ResizablePanel id="content" defaultSize="82%">
+        <div className="flex h-full min-w-0 flex-col bg-background">
+          <div className="flex items-center justify-between border-b px-4 py-2">
+            <div className="flex min-w-0 items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setSidebarOpen((value) => !value)}
+                className="rounded-md p-2 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+              >
+                {sidebarOpen ? <PanelLeftClose size={16} /> : <PanelLeftOpen size={16} />}
+              </button>
+              <div className="min-w-0">
+                <h2 className="truncate text-sm font-medium">{project.display_name}</h2>
+                <p className="truncate text-xs text-muted-foreground">{project.path}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <FileCode2 size={14} />
+              {project.capability_count} capabilities
+            </div>
           </div>
 
-          <ScrollArea className="min-h-0 flex-1">
-            <div className="h-full p-4">
-              <TabsContent value="overview" className="mt-0 space-y-4">
-                <div className="grid gap-4 md:grid-cols-3">
-                  <SummaryCard
-                    title="Project-first"
-                    description="Keep the active `.terva` document as the source of truth for structure and runtime behavior."
-                    icon={FileCode2}
-                  />
-                  <SummaryCard
-                    title="Explicit capabilities"
-                    description="Shape only narrow, inspectable capabilities with deterministic actions and verification."
-                    icon={Wrench}
-                  />
-                  <SummaryCard
-                    title="Local primers"
-                    description="Keep subsystem notes and AI guidance close to the project without burying logic in the UI."
-                    icon={NotebookTabs}
-                  />
-                </div>
-
-                <Card className="border-border/70">
-                  <CardHeader>
-                    <CardTitle>{selectedCapability?.name ?? "No capability selected"}</CardTitle>
-                    <CardDescription>
-                      {selectedCapability?.summary ??
-                        "Select a capability from the sidebar to shape the workbench."}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4 text-sm text-muted-foreground">
-                    <p>
-                      This page keeps only the reusable sidebar and panel layout for
-                      a `.terva` project workbench.
-                    </p>
-                    <div className="rounded-lg border border-dashed border-border/70 bg-background/70 p-4">
-                      No device scanning or hardware transport is attached to this
-                      view. It is now a shell for project editing and inspection.
-                    </div>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              <TabsContent value="model" className="mt-0">
-                <Card className="border-border/70">
-                  <CardHeader>
-                    <CardTitle>Workbench model outline</CardTitle>
-                    <CardDescription>
-                      A UI skeleton for project-centric editing, not runtime execution.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-3 text-sm text-muted-foreground">
-                    <div className="rounded-lg border bg-background/60 p-3 font-mono text-xs">
-                      project
-                      <br />
-                      ├─ backends
-                      <br />
-                      ├─ capabilities
-                      <br />
-                      ├─ primers
-                      <br />
-                      └─ notes
-                    </div>
-                    <p>
-                      The next step is to bind this layout to real `.terva` document
-                      structure, not to reintroduce hardware logic into the shell.
-                    </p>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-
-              <TabsContent value="notes" className="mt-0">
-                <Card className="border-border/70">
-                  <CardHeader>
-                    <CardTitle>Notes</CardTitle>
-                    <CardDescription>
-                      Reserved space for project-local annotations and future editor state.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-3 text-sm text-muted-foreground">
-                    <p>
-                      Keep parsing, validation, execution, and MCP behavior in the shared
-                      Terva runtime. The desktop shell stays a thin document interface.
-                    </p>
-                  </CardContent>
-                </Card>
-              </TabsContent>
+          <Tabs defaultValue="overview" className="flex min-h-0 flex-1 flex-col">
+            <div className="border-b px-4 py-2">
+              <TabsList>
+                <TabsTrigger value="overview">Overview</TabsTrigger>
+                <TabsTrigger value="capability">Capability</TabsTrigger>
+                <TabsTrigger value="document">Document</TabsTrigger>
+              </TabsList>
             </div>
-          </ScrollArea>
-        </Tabs>
+
+            <TabsContent value="overview" className="min-h-0 flex-1 overflow-auto p-6">
+              <div className="grid gap-4 xl:grid-cols-3">
+                <SummaryCard
+                  title="Capabilities"
+                  description={`${project.capability_count} explicit capabilities exposed by the project model.`}
+                  icon={Layers}
+                />
+                <SummaryCard
+                  title="Backends"
+                  description={`${project.backend_count} backend mapping${project.backend_count === 1 ? "" : "s"} declared in the active document.`}
+                  icon={DatabaseZap}
+                />
+                <SummaryCard
+                  title="Validation"
+                  description={
+                    project.validation.ok
+                      ? "The loaded document validates cleanly."
+                      : `${project.validation.issues.length} validation issue${
+                          project.validation.issues.length === 1 ? "" : "s"
+                        } need attention.`
+                  }
+                  icon={NotebookTabs}
+                />
+              </div>
+
+              {project.validation.ok ? null : (
+                <Card className="mt-4 border-amber-500/30 bg-amber-500/5">
+                  <CardHeader>
+                    <CardTitle>Validation Issues</CardTitle>
+                    <CardDescription>
+                      The core loaded the document, but runtime operations stay blocked until
+                      these issues are fixed.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {project.validation.issues.map((issue) => (
+                      <div key={`${issue.path}-${issue.message}`} className="rounded-lg border px-3 py-2">
+                        <div className="text-sm font-medium">{issue.path}</div>
+                        <div className="text-sm text-muted-foreground">{issue.message}</div>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              )}
+            </TabsContent>
+
+            <TabsContent value="capability" className="min-h-0 flex-1 overflow-auto p-6">
+              {selectedCapability ? (
+                <div className="space-y-4">
+                  <Card className="border-border/70">
+                    <CardHeader>
+                      <CardTitle>{selectedCapability.tool_name}</CardTitle>
+                      <CardDescription>{selectedCapability.description}</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4 text-sm">
+                      <div>
+                        <div className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
+                          Inputs
+                        </div>
+                        <div className="mt-2">
+                          {selectedCapability.input_schema_keys.length > 0
+                            ? selectedCapability.input_schema_keys.join(", ")
+                            : "No input fields"}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
+                          Actions
+                        </div>
+                        <div className="mt-2 space-y-2">
+                          {selectedCapability.actions.map((action) => (
+                            <div key={action.id} className="rounded-lg border px-3 py-2">
+                              <div className="font-medium">
+                                {action.method} {action.path}
+                              </div>
+                              <div className="text-muted-foreground">
+                                {action.backend_id} · success {action.success_statuses.join(", ")}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      {selectedCapability.verification ? (
+                        <div>
+                          <div className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
+                            Verification
+                          </div>
+                          <div className="mt-2 text-muted-foreground">
+                            {selectedCapability.verification.action_id} · attempts{" "}
+                            {selectedCapability.verification.attempts}
+                          </div>
+                        </div>
+                      ) : null}
+                    </CardContent>
+                  </Card>
+                </div>
+              ) : (
+                <Card className="border-border/70">
+                  <CardHeader>
+                    <CardTitle>No capability selected</CardTitle>
+                    <CardDescription>
+                      The loaded project does not currently expose any parsed capabilities.
+                    </CardDescription>
+                  </CardHeader>
+                </Card>
+              )}
+            </TabsContent>
+
+            <TabsContent value="document" className="min-h-0 flex-1 overflow-auto p-6">
+              <Card className="border-border/70">
+                <CardHeader>
+                  <CardTitle>Document Source</CardTitle>
+                  <CardDescription>
+                    The desktop shell is currently holding the raw `.terva` contents plus the
+                    parsed inspection model from the shared core.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <pre className="overflow-auto rounded-xl border bg-secondary/20 p-4 text-xs leading-6 text-muted-foreground">
+                    {project.contents}
+                  </pre>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
+        </div>
       </ResizablePanel>
     </ResizablePanelGroup>
   );

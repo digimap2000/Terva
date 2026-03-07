@@ -49,3 +49,10 @@ target_link_libraries(terva_project_proto
   PUBLIC
     terva::protobuf
 )
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+  target_compile_options(terva_project_proto
+    PRIVATE
+      -Wno-deprecated-declarations
+  )
+endif()
