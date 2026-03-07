@@ -15,6 +15,8 @@ struct backend_request final {
   std::string backend_id;
   project::http_method method{project::http_method::get};
   std::string path;
+  std::map<std::string, std::string, std::less<>> query_parameters;
+  std::map<std::string, std::string, std::less<>> headers;
   bool has_body{false};
   json body = nullptr;
 };
@@ -22,6 +24,7 @@ struct backend_request final {
 struct backend_response final {
   int status_code{0};
   json body = nullptr;
+  std::string raw_body;
   std::map<std::string, std::string, std::less<>> headers;
 };
 
@@ -52,4 +55,3 @@ class backend_registry final {
 };
 
 }  // namespace terva::core::backend
-

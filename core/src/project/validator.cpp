@@ -7,10 +7,8 @@
 namespace terva::core::project {
 namespace {
 
-[[nodiscard]] bool is_localhost_url(const std::string& value) {
-  return value.starts_with("http://127.0.0.1") ||
-         value.starts_with("http://localhost") ||
-         value.starts_with("http://[::1]");
+[[nodiscard]] bool is_http_url(const std::string& value) {
+  return value.starts_with("http://") || value.starts_with("https://");
 }
 
 [[nodiscard]] bool json_pointer_looks_valid(const std::string& value) {
@@ -57,9 +55,9 @@ std::vector<validation_issue> validate_project(const project_definition& project
     if (!backend_ids.insert(backend.id).second) {
       issues.push_back({path + ".id", "must be unique"});
     }
-    if (!is_localhost_url(backend.base_url)) {
+    if (!is_http_url(backend.base_url)) {
       issues.push_back({path + ".base_url",
-                        "must point to a localhost HTTP endpoint for v0"});
+                        "must be an HTTP or HTTPS base URL"});
     }
   }
 
@@ -139,6 +137,26 @@ std::vector<validation_issue> validate_project(const project_definition& project
       if (action.path_template.empty()) {
         issues.push_back({path + ".path", "must not be empty"});
       }
+      for (const auto& [name, value] : action.query_parameters) {
+        if (name.empty()) {
+          issues.push_back({path + ".query",
+                            "query parameter names must not be empty"});
+        }
+        if (value.empty()) {
+          issues.push_back({path + ".query." + name,
+                            "query parameter values must not be empty"});
+        }
+      }
+      for (const auto& [name, value] : action.headers) {
+        if (name.empty()) {
+          issues.push_back({path + ".headers",
+                            "header names must not be empty"});
+        }
+        if (value.empty()) {
+          issues.push_back({path + ".headers." + name,
+                            "header values must not be empty"});
+        }
+      }
       if (action.success_statuses.empty()) {
         issues.push_back({path + ".success_statuses",
                           "must contain at least one status code"});
@@ -214,6 +232,18 @@ std::vector<validation_issue> validate_project(const project_definition& project
         issues.push_back({capability_path + ".verification.expect",
                           "must define equals or equals_input"});
       }
+      if (verification.attempts < 1) {
+        issues.push_back({capability_path + ".verification.attempts",
+                          "must be at least 1"});
+      }
+      if (verification.delay_ms < 0) {
+        issues.push_back({capability_path + ".verification.delay_ms",
+                          "must be 0 or greater"});
+      }
+      if (verification.success_delay_ms < 0) {
+        issues.push_back({capability_path + ".verification.success_delay_ms",
+                          "must be 0 or greater"});
+      }
     }
 
     const auto property_names = schema_property_names(capability.input_schema);
@@ -241,6 +271,20 @@ std::vector<validation_issue> validate_project(const project_definition& project
         issues.push_back({path + ".value",
                           "must be set for literal output mappings"});
       }
+      if (!output.normalize.empty()) {
+        if (output.source != output_source::action &&
+            output.source != output_source::verification &&
+            output.source != output_source::input) {
+          issues.push_back({path + ".normalize",
+                            "normalization is only valid for extracted or input values"});
+        }
+        for (const auto& [raw_value, _] : output.normalize) {
+          if (raw_value.empty()) {
+            issues.push_back({path + ".normalize",
+                              "normalization keys must not be empty"});
+          }
+        }
+      }
     }
   }
 
@@ -248,4 +292,3 @@ std::vector<validation_issue> validate_project(const project_definition& project
 }
 
 }  // namespace terva::core::project
-

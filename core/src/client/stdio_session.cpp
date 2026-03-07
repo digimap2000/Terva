@@ -56,7 +56,7 @@ std::expected<stdio_session, std::string> stdio_session::spawn(
 
     const auto server = options.server_executable.string();
     const auto project = options.project_file.string();
-    execl(server.c_str(), server.c_str(), "run", project.c_str(),
+    execl(server.c_str(), server.c_str(), "run", "--stdio", project.c_str(),
           static_cast<char*>(nullptr));
     _exit(127);
   }
@@ -288,4 +288,3 @@ void stdio_session::shutdown() noexcept {
 }
 
 }  // namespace terva::core::client
-

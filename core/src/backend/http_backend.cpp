@@ -41,6 +41,44 @@ class curl_runtime final {
   return base_url + path;
 }
 
+[[nodiscard]] std::expected<std::string, std::string> encode_query_parameters(
+    CURL* handle,
+    const std::map<std::string, std::string, std::less<>>& query_parameters) {
+  if (query_parameters.empty()) {
+    return std::string{};
+  }
+
+  std::string encoded_query;
+  bool first = true;
+  for (const auto& [name, value] : query_parameters) {
+    char* encoded_name = curl_easy_escape(handle, name.c_str(),
+                                          static_cast<int>(name.size()));
+    char* encoded_value = curl_easy_escape(handle, value.c_str(),
+                                           static_cast<int>(value.size()));
+    if (encoded_name == nullptr || encoded_value == nullptr) {
+      if (encoded_name != nullptr) {
+        curl_free(encoded_name);
+      }
+      if (encoded_value != nullptr) {
+        curl_free(encoded_value);
+      }
+      return std::unexpected("failed to encode query parameters");
+    }
+
+    if (!first) {
+      encoded_query.push_back('&');
+    }
+    first = false;
+    encoded_query.append(encoded_name);
+    encoded_query.push_back('=');
+    encoded_query.append(encoded_value);
+    curl_free(encoded_name);
+    curl_free(encoded_value);
+  }
+
+  return encoded_query;
+}
+
 size_t write_body_callback(
     char* pointer,
     size_t size,
@@ -108,9 +146,21 @@ std::expected<backend_response, std::string> http_backend::perform(
 
   std::string response_body;
   backend_response response;
-  const auto url = join_url(definition_.base_url, request.path);
   const auto body_string =
       request.has_body ? request.body.dump() : std::string{};
+
+  const auto encoded_query =
+      encode_query_parameters(handle, request.query_parameters);
+  if (!encoded_query) {
+    curl_easy_cleanup(handle);
+    return std::unexpected(encoded_query.error());
+  }
+
+  auto url = join_url(definition_.base_url, request.path);
+  if (!encoded_query->empty()) {
+    url.push_back('?');
+    url.append(*encoded_query);
+  }
 
   curl_easy_setopt(handle, CURLOPT_URL, url.c_str());
   curl_easy_setopt(handle, CURLOPT_WRITEFUNCTION, write_body_callback);
@@ -125,6 +175,16 @@ std::expected<backend_response, std::string> http_backend::perform(
     curl_easy_setopt(handle, CURLOPT_POSTFIELDS, body_string.c_str());
     curl_easy_setopt(handle, CURLOPT_POSTFIELDSIZE,
                      static_cast<long>(body_string.size()));
+  } else if (request.method == project::http_method::put) {
+    curl_easy_setopt(handle, CURLOPT_CUSTOMREQUEST, "PUT");
+    if (request.has_body) {
+      curl_easy_setopt(handle, CURLOPT_POSTFIELDS, body_string.c_str());
+      curl_easy_setopt(handle, CURLOPT_POSTFIELDSIZE,
+                       static_cast<long>(body_string.size()));
+    } else {
+      curl_easy_setopt(handle, CURLOPT_POSTFIELDS, "");
+      curl_easy_setopt(handle, CURLOPT_POSTFIELDSIZE, 0L);
+    }
   } else {
     curl_easy_setopt(handle, CURLOPT_HTTPGET, 1L);
   }
@@ -137,6 +197,10 @@ std::expected<backend_response, std::string> http_backend::perform(
         raw_headers, "Content-Type: application/json");
   }
   for (const auto& [name, value] : definition_.headers) {
+    const auto header_line = name + ": " + value;
+    raw_headers = curl_slist_append(raw_headers, header_line.c_str());
+  }
+  for (const auto& [name, value] : request.headers) {
     const auto header_line = name + ": " + value;
     raw_headers = curl_slist_append(raw_headers, header_line.c_str());
   }
@@ -156,17 +220,18 @@ std::expected<backend_response, std::string> http_backend::perform(
   response.status_code = static_cast<int>(status_code);
 
   curl_easy_cleanup(handle);
+  response.raw_body = response_body;
 
   if (response_body.empty()) {
-    response.body = json::object();
+    response.body = nullptr;
     return response;
   }
 
   try {
     response.body = json::parse(response_body);
   } catch (const std::exception& exception) {
-    return std::unexpected(
-        "backend response was not valid JSON: " + std::string(exception.what()));
+    (void)exception;
+    response.body = response_body;
   }
 
   return response;
@@ -199,4 +264,3 @@ std::expected<backend_response, std::string> backend_registry::perform(
 }
 
 }  // namespace terva::core::backend
-

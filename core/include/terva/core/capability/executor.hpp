@@ -19,10 +19,14 @@ struct backend_call_summary final {
   std::string backend_id;
   std::string method;
   std::string url;
+  std::string path;
+  json query_parameters = json::object();
   bool ok{false};
   int status_code{0};
+  json request_headers = json::object();
   json request_body = nullptr;
   json response_body = nullptr;
+  std::string response_body_text;
   std::optional<std::string> error;
 };
 
@@ -53,10 +57,18 @@ struct verification_result final {
   bool attempted{false};
   bool ok{false};
   std::string action_id;
-  json expected_value = nullptr;
-  json actual_value = nullptr;
-  std::optional<backend_call_summary> call;
+  int attempts{0};
+  json expected_raw_value = nullptr;
+  json observed_raw_value = nullptr;
+  json expected_normalized_value = nullptr;
+  json observed_normalized_value = nullptr;
   std::optional<std::string> error;
+};
+
+struct execution_trace final {
+  std::vector<precondition_check_result> preconditions;
+  std::vector<setup_step_result> setup_steps;
+  std::vector<backend_call_summary> steps;
 };
 
 struct capability_error final {
@@ -69,12 +81,9 @@ struct capability_execution_result final {
   bool ok{false};
   std::string capability_id;
   std::string tool_name;
-  json input = nullptr;
-  std::vector<precondition_check_result> preconditions;
-  std::vector<setup_step_result> setup_steps;
-  std::vector<backend_call_summary> backend_calls;
-  std::optional<verification_result> verification;
   json output = nullptr;
+  std::optional<verification_result> verification;
+  execution_trace trace;
   std::optional<capability_error> error;
 };
 
@@ -82,6 +91,7 @@ void to_json(json& target, const backend_call_summary& value);
 void to_json(json& target, const precondition_check_result& value);
 void to_json(json& target, const setup_step_result& value);
 void to_json(json& target, const verification_result& value);
+void to_json(json& target, const execution_trace& value);
 void to_json(json& target, const capability_error& value);
 void to_json(json& target, const capability_execution_result& value);
 
@@ -103,4 +113,3 @@ class capability_executor final {
 };
 
 }  // namespace terva::core::capability
-

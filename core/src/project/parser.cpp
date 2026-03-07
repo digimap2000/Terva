@@ -146,6 +146,30 @@ using json_object = json::object_t;
   }
   action.path_template = std::move(*action_path);
 
+  if (const auto query = value.find("query"); query != value.end()) {
+    if (!query->is_object()) {
+      return std::unexpected(path + ".query must be an object");
+    }
+    for (const auto& [name, query_value] : query->items()) {
+      if (!query_value.is_string()) {
+        return std::unexpected(path + ".query." + name + " must be a string");
+      }
+      action.query_parameters.emplace(name, query_value.get<std::string>());
+    }
+  }
+
+  if (const auto headers = value.find("headers"); headers != value.end()) {
+    if (!headers->is_object()) {
+      return std::unexpected(path + ".headers must be an object");
+    }
+    for (const auto& [name, header_value] : headers->items()) {
+      if (!header_value.is_string()) {
+        return std::unexpected(path + ".headers." + name + " must be a string");
+      }
+      action.headers.emplace(name, header_value.get<std::string>());
+    }
+  }
+
   if (const auto body = value.find("body"); body != value.end()) {
     action.body_template = *body;
   }
@@ -307,6 +331,26 @@ parse_precondition(const json& value,
   }
   verification.expect = std::move(*parsed_expectation);
 
+  if (const auto attempts = value.find("attempts"); attempts != value.end()) {
+    if (!attempts->is_number_integer()) {
+      return std::unexpected(path + ".attempts must be an integer");
+    }
+    verification.attempts = attempts->get<int>();
+  }
+  if (const auto delay_ms = value.find("delay_ms"); delay_ms != value.end()) {
+    if (!delay_ms->is_number_integer()) {
+      return std::unexpected(path + ".delay_ms must be an integer");
+    }
+    verification.delay_ms = delay_ms->get<int>();
+  }
+  if (const auto success_delay_ms = value.find("success_delay_ms");
+      success_delay_ms != value.end()) {
+    if (!success_delay_ms->is_number_integer()) {
+      return std::unexpected(path + ".success_delay_ms must be an integer");
+    }
+    verification.success_delay_ms = success_delay_ms->get<int>();
+  }
+
   return verification;
 }
 
@@ -349,6 +393,17 @@ parse_precondition(const json& value,
   }
   if (const auto literal = value.find("value"); literal != value.end()) {
     mapping.value = *literal;
+  }
+  if (const auto normalize = value.find("normalize"); normalize != value.end()) {
+    if (!normalize->is_object()) {
+      return std::unexpected(path + ".normalize must be an object");
+    }
+    for (const auto& [raw_value, mapped_value] : normalize->items()) {
+      mapping.normalize.emplace(raw_value, mapped_value);
+    }
+  }
+  if (const auto default_value = value.find("default"); default_value != value.end()) {
+    mapping.default_value = *default_value;
   }
 
   return mapping;
@@ -471,6 +526,8 @@ parse_precondition(const json& value,
 
 std::string_view to_string(const backend_type value) noexcept {
   switch (value) {
+    case backend_type::http_json:
+      return "http_json";
     case backend_type::localhost_http_json:
       return "localhost_http_json";
   }
@@ -483,6 +540,8 @@ std::string_view to_string(const http_method value) noexcept {
       return "GET";
     case http_method::post:
       return "POST";
+    case http_method::put:
+      return "PUT";
   }
   return "UNKNOWN";
 }
@@ -502,6 +561,9 @@ std::string_view to_string(const output_source value) noexcept {
 }
 
 std::optional<backend_type> parse_backend_type(const std::string_view value) noexcept {
+  if (value == "http_json") {
+    return backend_type::http_json;
+  }
   if (value == "localhost_http_json") {
     return backend_type::localhost_http_json;
   }
@@ -514,6 +576,9 @@ std::optional<http_method> parse_http_method(const std::string_view value) noexc
   }
   if (value == "POST") {
     return http_method::post;
+  }
+  if (value == "PUT") {
+    return http_method::put;
   }
   return std::nullopt;
 }

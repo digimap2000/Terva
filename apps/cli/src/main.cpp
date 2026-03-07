@@ -1,9 +1,10 @@
+#include "terva/core/client/http_session.hpp"
 #include "terva/core/client/stdio_session.hpp"
-#include "terva/core/version.hpp"
 
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -12,7 +13,9 @@ namespace {
 int print_usage() {
   std::cerr << "Usage:\n";
   std::cerr << "  terva-client tools stdio:<project-file>\n";
+  std::cerr << "  terva-client tools http://127.0.0.1:7777/mcp\n";
   std::cerr << "  terva-client call stdio:<project-file> <tool-name> <json-input>\n";
+  std::cerr << "  terva-client call http://127.0.0.1:7777/mcp <tool-name> <json-input>\n";
   return 1;
 }
 
@@ -33,47 +36,53 @@ std::filesystem::path resolve_server_executable(
   return "terva-server";
 }
 
-std::expected<terva::core::client::stdio_session::spawn_options, std::string>
-parse_connection(const std::string_view connection,
-                 const std::filesystem::path& argv0) {
-  constexpr std::string_view prefix = "stdio:";
-  if (!connection.starts_with(prefix)) {
-    return std::unexpected(
-        "unsupported connection. use stdio:<project-file> for v0");
+struct connection_spec final {
+  enum class type {
+    stdio,
+    http,
+  };
+
+  type transport{type::stdio};
+  std::optional<terva::core::client::stdio_session::spawn_options> stdio;
+  std::optional<std::string> http_url;
+};
+
+std::expected<connection_spec, std::string> parse_connection(
+    const std::string_view connection,
+    const std::filesystem::path& argv0) {
+  constexpr std::string_view stdio_prefix = "stdio:";
+  if (connection.starts_with(stdio_prefix)) {
+    const auto project_path =
+        std::filesystem::path(connection.substr(stdio_prefix.size()));
+    return connection_spec{
+        .transport = connection_spec::type::stdio,
+        .stdio = terva::core::client::stdio_session::spawn_options{
+            .server_executable = resolve_server_executable(argv0),
+            .project_file = project_path,
+        },
+    };
   }
 
-  const auto project_path = std::filesystem::path(connection.substr(prefix.size()));
-  return terva::core::client::stdio_session::spawn_options{
-      .server_executable = resolve_server_executable(argv0),
-      .project_file = project_path,
-  };
+  if (connection.starts_with("http://")) {
+    return connection_spec{
+        .transport = connection_spec::type::http,
+        .http_url = std::string(connection),
+    };
+  }
+
+  return std::unexpected(
+      "unsupported connection. use stdio:<project-file> or http://127.0.0.1:7777/mcp");
 }
 
-}  // namespace
-
-int main(const int argc, char** argv) {
-  if (argc < 3) {
-    return print_usage();
-  }
-
+template <typename Session>
+int run_command(Session& session, const int argc, char** argv) {
   const std::string_view command = argv[1];
-  const auto connection = parse_connection(argv[2], argv[0]);
-  if (!connection) {
-    std::cerr << connection.error() << '\n';
-    return 1;
-  }
-
-  auto session = terva::core::client::stdio_session::spawn(*connection);
-  if (!session) {
-    std::cerr << session.error() << '\n';
-    return 1;
-  }
 
   if (command == "tools") {
     if (argc != 3) {
       return print_usage();
     }
-    const auto tools = session->list_tools();
+    const auto tools = session.list_tools();
     if (!tools) {
       std::cerr << tools.error() << '\n';
       return 1;
@@ -95,7 +104,7 @@ int main(const int argc, char** argv) {
       return 1;
     }
 
-    const auto result = session->call_tool(argv[3], input);
+    const auto result = session.call_tool(argv[3], input);
     if (!result) {
       std::cerr << result.error() << '\n';
       return 1;
@@ -107,3 +116,28 @@ int main(const int argc, char** argv) {
   return print_usage();
 }
 
+}  // namespace
+
+int main(const int argc, char** argv) {
+  if (argc < 3) {
+    return print_usage();
+  }
+
+  const auto connection = parse_connection(argv[2], argv[0]);
+  if (!connection) {
+    std::cerr << connection.error() << '\n';
+    return 1;
+  }
+
+  if (connection->transport == connection_spec::type::stdio) {
+    auto session = terva::core::client::stdio_session::spawn(*connection->stdio);
+    if (!session) {
+      std::cerr << session.error() << '\n';
+      return 1;
+    }
+    return run_command(*session, argc, argv);
+  }
+
+  terva::core::client::http_session session(*connection->http_url);
+  return run_command(session, argc, argv);
+}

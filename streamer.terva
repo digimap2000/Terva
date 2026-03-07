@@ -1,0 +1,171 @@
+{
+  "name": "Streamer Power Control",
+  "description": "Known real-device power control for the streamer at 192.168.1.111:15081.",
+  "logging": {
+    "sink": "stderr"
+  },
+  "backends": [
+    {
+      "id": "streamer",
+      "type": "http_json",
+      "base_url": "http://192.168.1.111:15081"
+    }
+  ],
+  "capabilities": [
+    {
+      "id": "get_power_state",
+      "tool_name": "get_power_state",
+      "description": "Read the current power state of the streamer.",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "actions": [
+        {
+          "id": "read_power_state",
+          "backend": "streamer",
+          "method": "GET",
+          "path": "/power",
+          "success_statuses": [200]
+        }
+      ],
+      "action": "read_power_state",
+      "output_mapping": {
+        "raw_system": {
+          "source": "action",
+          "json_pointer": "/system"
+        },
+        "normalized_state": {
+          "source": "action",
+          "json_pointer": "/system",
+          "normalize": {
+            "on": "active",
+            "lona": "standby"
+          },
+          "default": "unknown"
+        }
+      }
+    },
+    {
+      "id": "enter_active",
+      "tool_name": "enter_active",
+      "description": "Put the streamer into active/on state.",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "actions": [
+        {
+          "id": "enter_active_request",
+          "backend": "streamer",
+          "method": "PUT",
+          "path": "/power",
+          "query": {
+            "system": "on"
+          },
+          "success_statuses": [200, 204]
+        },
+        {
+          "id": "read_power_state_after_active",
+          "backend": "streamer",
+          "method": "GET",
+          "path": "/power",
+          "success_statuses": [200]
+        }
+      ],
+      "action": "enter_active_request",
+      "verification": {
+        "action": "read_power_state_after_active",
+        "expect": {
+          "json_pointer": "/system",
+          "equals": "on"
+        },
+        "attempts": 6,
+        "delay_ms": 1000,
+        "success_delay_ms": 5000
+      },
+      "output_mapping": {
+        "requested_state": {
+          "source": "literal",
+          "value": "active"
+        },
+        "raw_final_system": {
+          "source": "verification",
+          "json_pointer": "/system"
+        },
+        "final_normalized_state": {
+          "source": "verification",
+          "json_pointer": "/system",
+          "normalize": {
+            "on": "active",
+            "lona": "standby"
+          },
+          "default": "unknown"
+        }
+      }
+    },
+    {
+      "id": "enter_standby",
+      "tool_name": "enter_standby",
+      "description": "Put the streamer into standby state.",
+      "input_schema": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "actions": [
+        {
+          "id": "enter_standby_request",
+          "backend": "streamer",
+          "method": "PUT",
+          "path": "/power",
+          "query": {
+            "system": "lona"
+          },
+          "success_statuses": [200, 204]
+        },
+        {
+          "id": "read_power_state_after_standby",
+          "backend": "streamer",
+          "method": "GET",
+          "path": "/power",
+          "success_statuses": [200]
+        }
+      ],
+      "action": "enter_standby_request",
+      "verification": {
+        "action": "read_power_state_after_standby",
+        "expect": {
+          "json_pointer": "/system",
+          "equals": "lona"
+        },
+        "attempts": 6,
+        "delay_ms": 1000
+      },
+      "output_mapping": {
+        "requested_state": {
+          "source": "literal",
+          "value": "standby"
+        },
+        "raw_final_system": {
+          "source": "verification",
+          "json_pointer": "/system"
+        },
+        "final_normalized_state": {
+          "source": "verification",
+          "json_pointer": "/system",
+          "normalize": {
+            "on": "active",
+            "lona": "standby"
+          },
+          "default": "unknown"
+        }
+      }
+    }
+  ]
+}

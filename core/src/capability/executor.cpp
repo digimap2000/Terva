@@ -3,7 +3,9 @@
 #include "terva/core/project/validator.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <sstream>
+#include <thread>
 #include <unordered_map>
 
 namespace terva::core::capability {
@@ -11,7 +13,7 @@ namespace {
 
 struct action_execution_output final {
   backend_call_summary summary;
-  json response_body = json::object();
+  json response_body = nullptr;
 };
 
 [[nodiscard]] std::string join_action_url(
@@ -24,6 +26,27 @@ struct action_execution_output final {
     return backend.base_url + "/" + path;
   }
   return backend.base_url + path;
+}
+
+[[nodiscard]] std::string append_query_string(
+    std::string url,
+    const std::map<std::string, std::string, std::less<>>& query_parameters) {
+  if (query_parameters.empty()) {
+    return url;
+  }
+
+  url.push_back('?');
+  bool first = true;
+  for (const auto& [name, value] : query_parameters) {
+    if (!first) {
+      url.push_back('&');
+    }
+    first = false;
+    url.append(name);
+    url.push_back('=');
+    url.append(value);
+  }
+  return url;
 }
 
 [[nodiscard]] const project::capability_definition* find_capability(
@@ -187,6 +210,21 @@ struct action_execution_output final {
   return template_value;
 }
 
+[[nodiscard]] std::expected<std::map<std::string, std::string, std::less<>>, std::string>
+render_string_map_templates(
+    const std::map<std::string, std::string, std::less<>>& template_values,
+    const json& input) {
+  std::map<std::string, std::string, std::less<>> rendered;
+  for (const auto& [name, value] : template_values) {
+    const auto rendered_value = render_text_template(value, input);
+    if (!rendered_value) {
+      return std::unexpected(rendered_value.error());
+    }
+    rendered.emplace(name, *rendered_value);
+  }
+  return rendered;
+}
+
 [[nodiscard]] std::expected<json, std::string> extract_json_pointer(
     const json& body,
     const std::string& pointer) {
@@ -196,6 +234,54 @@ struct action_execution_output final {
     return std::unexpected(
         "failed to extract json pointer " + pointer + ": " + exception.what());
   }
+}
+
+[[nodiscard]] json apply_output_normalization(
+    const project::output_field_mapping& mapping,
+    json value) {
+  if (mapping.normalize.empty()) {
+    return value;
+  }
+
+  if (value.is_string()) {
+    const auto iterator = mapping.normalize.find(value.get<std::string>());
+    if (iterator != mapping.normalize.end()) {
+      return iterator->second;
+    }
+  }
+
+  if (mapping.default_value.has_value()) {
+    return *mapping.default_value;
+  }
+
+  return value;
+}
+
+[[nodiscard]] const project::output_field_mapping* find_output_mapping(
+    const project::capability_definition& capability,
+    const project::output_source source,
+    const std::string_view json_pointer) {
+  for (const auto& mapping : capability.output_fields) {
+    if (mapping.source != source || !mapping.json_pointer.has_value()) {
+      continue;
+    }
+    if (*mapping.json_pointer == json_pointer) {
+      return &mapping;
+    }
+  }
+  return nullptr;
+}
+
+[[nodiscard]] json normalize_trace_value(
+    const project::capability_definition& capability,
+    const project::output_source source,
+    const std::string_view json_pointer,
+    const json& value) {
+  const auto* mapping = find_output_mapping(capability, source, json_pointer);
+  if (mapping == nullptr) {
+    return value;
+  }
+  return apply_output_normalization(*mapping, value);
 }
 
 [[nodiscard]] std::expected<json, std::string> resolve_expected_value(
@@ -270,11 +356,17 @@ void to_json(json& target, const backend_call_summary& value) {
       {"backend_id", value.backend_id},
       {"method", value.method},
       {"url", value.url},
+      {"path", value.path},
+      {"query_parameters", value.query_parameters},
       {"ok", value.ok},
       {"status_code", value.status_code},
+      {"request_headers", value.request_headers},
       {"request_body", value.request_body},
       {"response_body", value.response_body},
   };
+  if (!value.response_body_text.empty()) {
+    target["response_body_text"] = value.response_body_text;
+  }
   if (value.error.has_value()) {
     target["error"] = *value.error;
   }
@@ -320,15 +412,23 @@ void to_json(json& target, const verification_result& value) {
       {"attempted", value.attempted},
       {"ok", value.ok},
       {"action_id", value.action_id},
-      {"expected_value", value.expected_value},
-      {"actual_value", value.actual_value},
+      {"attempts", value.attempts},
+      {"expected_raw_system", value.expected_raw_value},
+      {"observed_raw_system", value.observed_raw_value},
+      {"expected_normalized_state", value.expected_normalized_value},
+      {"observed_normalized_state", value.observed_normalized_value},
   };
-  if (value.call.has_value()) {
-    target["call"] = *value.call;
-  }
   if (value.error.has_value()) {
     target["error"] = *value.error;
   }
+}
+
+void to_json(json& target, const execution_trace& value) {
+  target = json{
+      {"preconditions", value.preconditions},
+      {"setup_steps", value.setup_steps},
+      {"steps", value.steps},
+  };
 }
 
 void to_json(json& target, const capability_error& value) {
@@ -344,11 +444,8 @@ void to_json(json& target, const capability_execution_result& value) {
       {"ok", value.ok},
       {"capability_id", value.capability_id},
       {"tool_name", value.tool_name},
-      {"input", value.input},
-      {"preconditions", value.preconditions},
-      {"setup_steps", value.setup_steps},
-      {"backend_calls", value.backend_calls},
       {"output", value.output},
+      {"trace", value.trace},
   };
   if (value.verification.has_value()) {
     target["verification"] = *value.verification;
@@ -378,7 +475,6 @@ capability_executor::execute_tool(const std::string_view tool_name,
         .ok = false,
         .capability_id = capability->id,
         .tool_name = capability->tool_name,
-        .input = input,
         .output = json::object(),
         .error = capability_error{
             .stage = "input",
@@ -396,7 +492,6 @@ capability_executor::execute_tool(const std::string_view tool_name,
       .ok = false,
       .capability_id = capability->id,
       .tool_name = capability->tool_name,
-      .input = input,
       .output = json::object(),
   };
 
@@ -434,11 +529,35 @@ capability_executor::execute_tool(const std::string_view tool_name,
       output.summary.error = "unknown backend: " + action.backend_id;
       return output;
     }
+    for (const auto& [name, value] : backend_definition->headers) {
+      output.summary.request_headers[name] = value;
+    }
 
     const auto rendered_path = render_text_template(action.path_template, input);
     if (!rendered_path) {
       output.summary.error = rendered_path.error();
       return output;
+    }
+    output.summary.path = *rendered_path;
+
+    const auto rendered_query =
+        render_string_map_templates(action.query_parameters, input);
+    if (!rendered_query) {
+      output.summary.error = rendered_query.error();
+      return output;
+    }
+    for (const auto& [name, value] : *rendered_query) {
+      output.summary.query_parameters[name] = value;
+    }
+
+    const auto rendered_headers =
+        render_string_map_templates(action.headers, input);
+    if (!rendered_headers) {
+      output.summary.error = rendered_headers.error();
+      return output;
+    }
+    for (const auto& [name, value] : *rendered_headers) {
+      output.summary.request_headers[name] = value;
     }
 
     json rendered_body = json::object();
@@ -453,13 +572,16 @@ capability_executor::execute_tool(const std::string_view tool_name,
       has_body = true;
     }
 
-    output.summary.url = join_action_url(*backend_definition, *rendered_path);
-    output.summary.request_body = has_body ? rendered_body : json::object();
+    output.summary.url = append_query_string(
+        join_action_url(*backend_definition, *rendered_path), *rendered_query);
+    output.summary.request_body = has_body ? rendered_body : json(nullptr);
 
     backend::backend_request request{
         .backend_id = action.backend_id,
         .method = action.method,
         .path = *rendered_path,
+        .query_parameters = *rendered_query,
+        .headers = *rendered_headers,
         .has_body = has_body,
         .body = rendered_body,
     };
@@ -475,6 +597,7 @@ capability_executor::execute_tool(const std::string_view tool_name,
 
     output.summary.status_code = response->status_code;
     output.summary.response_body = response->body;
+    output.summary.response_body_text = response->raw_body;
     output.response_body = response->body;
     output.summary.ok = std::ranges::find(
                             action.success_statuses, response->status_code) !=
@@ -508,7 +631,7 @@ capability_executor::execute_tool(const std::string_view tool_name,
 
         auto action_output = execute_action(stage, *action);
         evaluation.call = action_output.summary;
-        result.backend_calls.push_back(action_output.summary);
+        result.trace.steps.push_back(action_output.summary);
         if (!action_output.summary.ok) {
           evaluation.error = action_output.summary.error;
           return std::pair{evaluation, action_output.response_body};
@@ -541,12 +664,12 @@ capability_executor::execute_tool(const std::string_view tool_name,
     }
 
     if (evaluation.met) {
-      result.preconditions.push_back(std::move(evaluation));
+      result.trace.preconditions.push_back(std::move(evaluation));
       continue;
     }
 
     if (evaluation.error.has_value()) {
-      result.preconditions.push_back(evaluation);
+      result.trace.preconditions.push_back(evaluation);
       emit_result_failure("precondition", "precondition_check_failed",
                           *evaluation.error);
       return result;
@@ -554,7 +677,7 @@ capability_executor::execute_tool(const std::string_view tool_name,
 
     const auto* setup_step = find_setup_step(*capability, precondition.id);
     if (setup_step == nullptr) {
-      result.preconditions.push_back(evaluation);
+      result.trace.preconditions.push_back(evaluation);
       emit_result_failure(
           "precondition", "unsatisfied_precondition",
           "precondition " + precondition.id + " was not met and has no setup step");
@@ -571,7 +694,7 @@ capability_executor::execute_tool(const std::string_view tool_name,
     const auto* setup_action = find_action(*capability, setup_step->action_id);
     if (setup_action == nullptr) {
       setup_result.error = "unknown setup action: " + setup_step->action_id;
-      result.setup_steps.push_back(setup_result);
+      result.trace.setup_steps.push_back(setup_result);
       emit_result_failure("setup", "unknown_action", *setup_result.error);
       return result;
     }
@@ -582,10 +705,10 @@ capability_executor::execute_tool(const std::string_view tool_name,
     if (!setup_output.summary.ok) {
       setup_result.error = setup_output.summary.error;
     }
-    result.backend_calls.push_back(setup_output.summary);
-    result.setup_steps.push_back(setup_result);
+    result.trace.steps.push_back(setup_output.summary);
+    result.trace.setup_steps.push_back(setup_result);
     if (logger_) {
-      logger_->emit("terva.setup_executed", json(result.setup_steps.back()));
+      logger_->emit("terva.setup_executed", json(result.trace.setup_steps.back()));
     }
     if (!setup_result.ok) {
       emit_result_failure("setup", "setup_failed",
@@ -600,7 +723,7 @@ capability_executor::execute_tool(const std::string_view tool_name,
     if (logger_) {
       logger_->emit("terva.precondition_evaluated", json(rechecked));
     }
-    result.preconditions.push_back(rechecked);
+    result.trace.preconditions.push_back(rechecked);
     if (rechecked.error.has_value()) {
       emit_result_failure("precondition", "precondition_recheck_failed",
                           *rechecked.error);
@@ -622,7 +745,7 @@ capability_executor::execute_tool(const std::string_view tool_name,
   }
 
   auto main_output = execute_action("action", *main_action);
-  result.backend_calls.push_back(main_output.summary);
+  result.trace.steps.push_back(main_output.summary);
   if (!main_output.summary.ok) {
     emit_result_failure("action", "backend_call_failed",
                         main_output.summary.error.value_or("main action failed"));
@@ -632,16 +755,61 @@ capability_executor::execute_tool(const std::string_view tool_name,
   std::optional<json> verification_body;
   if (capability->verification.has_value()) {
     const auto& verification_definition = *capability->verification;
-    auto [verification_check, response_body] = evaluate_expectation(
-        "verification", "verification", "verification",
-        verification_definition.action_id, verification_definition.expect);
+    precondition_check_result verification_check;
+    json response_body = json::object();
+    int attempt_count = 0;
+    for (int attempt_index = 0; attempt_index < verification_definition.attempts;
+         ++attempt_index) {
+      attempt_count = attempt_index + 1;
+      std::tie(verification_check, response_body) = evaluate_expectation(
+          "verification", "verification", "verification",
+          verification_definition.action_id, verification_definition.expect);
+      const auto observed_normalized = normalize_trace_value(
+          *capability, project::output_source::verification,
+          verification_definition.expect.json_pointer,
+          verification_check.actual_value.is_null() ? json(nullptr)
+                                                    : verification_check.actual_value);
+      const auto expected_normalized = normalize_trace_value(
+          *capability, project::output_source::verification,
+          verification_definition.expect.json_pointer,
+          verification_check.expected_value.is_null() ? json(nullptr)
+                                                      : verification_check.expected_value);
+      if (logger_) {
+        logger_->emit("terva.verification_attempt",
+                      json{{"action_id", verification_definition.action_id},
+                           {"attempt", attempt_count},
+                           {"attempts", verification_definition.attempts},
+                           {"ok", verification_check.met},
+                           {"expected_raw_system", verification_check.expected_value},
+                           {"observed_raw_system", verification_check.actual_value},
+                           {"expected_normalized_state", expected_normalized},
+                           {"observed_normalized_state", observed_normalized},
+                           {"error", verification_check.error.value_or("")}});
+      }
+      if (verification_check.met || verification_check.error.has_value() ||
+          attempt_index + 1 >= verification_definition.attempts) {
+        break;
+      }
+      if (verification_definition.delay_ms > 0) {
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(verification_definition.delay_ms));
+      }
+    }
     verification_result verification{
         .attempted = true,
         .ok = verification_check.met,
         .action_id = verification_definition.action_id,
-        .expected_value = verification_check.expected_value,
-        .actual_value = verification_check.actual_value,
-        .call = verification_check.call,
+        .attempts = attempt_count,
+        .expected_raw_value = verification_check.expected_value,
+        .observed_raw_value = verification_check.actual_value,
+        .expected_normalized_value = normalize_trace_value(
+            *capability, project::output_source::verification,
+            verification_definition.expect.json_pointer,
+            verification_check.expected_value),
+        .observed_normalized_value = normalize_trace_value(
+            *capability, project::output_source::verification,
+            verification_definition.expect.json_pointer,
+            verification_check.actual_value),
         .error = verification_check.error,
     };
     result.verification = verification;
@@ -658,6 +826,19 @@ capability_executor::execute_tool(const std::string_view tool_name,
                           "verification result did not match expectation");
       return result;
     }
+    if (verification_definition.success_delay_ms > 0) {
+      if (logger_) {
+        logger_->emit("terva.verification_stabilizing",
+                      json{{"action_id", verification_definition.action_id},
+                           {"delay_ms", verification_definition.success_delay_ms},
+                           {"expected_raw_system", verification.expected_raw_value},
+                           {"observed_raw_system", verification.observed_raw_value},
+                           {"observed_normalized_state",
+                            verification.observed_normalized_value}});
+      }
+      std::this_thread::sleep_for(
+          std::chrono::milliseconds(verification_definition.success_delay_ms));
+    }
     verification_body = std::move(response_body);
   }
 
@@ -671,13 +852,15 @@ capability_executor::execute_tool(const std::string_view tool_name,
             break;
           }
           const auto value = lookup_json_path(input, *output_field.input_name);
-          result.output[output_field.name] = value ? *value : json(nullptr);
+          result.output[output_field.name] =
+              value ? apply_output_normalization(output_field, *value) : json(nullptr);
           break;
         }
         case project::output_source::action: {
           const auto value = extract_json_pointer(
               main_output.response_body, *output_field.json_pointer);
-          result.output[output_field.name] = value ? *value : json(nullptr);
+          result.output[output_field.name] =
+              value ? apply_output_normalization(output_field, *value) : json(nullptr);
           break;
         }
         case project::output_source::verification: {
@@ -687,7 +870,8 @@ capability_executor::execute_tool(const std::string_view tool_name,
           }
           const auto value = extract_json_pointer(
               *verification_body, *output_field.json_pointer);
-          result.output[output_field.name] = value ? *value : json(nullptr);
+          result.output[output_field.name] =
+              value ? apply_output_normalization(output_field, *value) : json(nullptr);
           break;
         }
         case project::output_source::literal:

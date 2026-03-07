@@ -12,12 +12,14 @@
 namespace terva::core::project {
 
 enum class backend_type {
+  http_json,
   localhost_http_json,
 };
 
 enum class http_method {
   get,
   post,
+  put,
 };
 
 enum class output_source {
@@ -45,6 +47,8 @@ struct http_action_definition final {
   std::string backend_id;
   http_method method{http_method::get};
   std::string path_template;
+  std::map<std::string, std::string, std::less<>> query_parameters;
+  std::map<std::string, std::string, std::less<>> headers;
   json body_template = nullptr;
   std::vector<int> success_statuses{200};
 };
@@ -72,6 +76,9 @@ struct setup_step_definition final {
 struct verification_definition final {
   std::string action_id;
   value_expectation expect;
+  int attempts{1};
+  int delay_ms{0};
+  int success_delay_ms{0};
 };
 
 struct output_field_mapping final {
@@ -80,6 +87,8 @@ struct output_field_mapping final {
   std::optional<std::string> json_pointer;
   std::optional<std::string> input_name;
   std::optional<json> value;
+  std::map<std::string, json, std::less<>> normalize;
+  std::optional<json> default_value;
 };
 
 struct capability_definition final {
@@ -120,4 +129,3 @@ struct validation_issue final {
 void to_json(json& target, const validation_issue& issue);
 
 }  // namespace terva::core::project
-

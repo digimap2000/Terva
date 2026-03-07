@@ -21,11 +21,11 @@ The C++ core owns:
 
 ### `apps/server/`
 
-`terva-server` is the standalone MCP runtime. It loads a project, validates it, builds tool definitions from capability data, and serves them over stdio using the DTS MCP transport.
+`terva-server` is the standalone MCP runtime. It loads a project, validates it, builds tool definitions from capability data, and serves them over stdio or localhost Streamable HTTP using DTS MCP transports.
 
 ### `apps/cli/`
 
-`terva-client` is the headless verification loop. For v0 it connects via a `stdio:<project-file>` connection spec, which spawns `terva-server run <project-file>` and drives the real MCP protocol path.
+`terva-client` is the headless verification loop. It connects either via `stdio:<project-file>`, which spawns `terva-server run --stdio <project-file>`, or directly to a localhost HTTP endpoint such as `http://127.0.0.1:7777/mcp`.
 
 ### `apps/example-backend/`
 

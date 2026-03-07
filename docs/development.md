@@ -41,19 +41,18 @@ cmake --build --preset dev
 ### Run the MCP server directly for an external MCP host
 
 ```sh
-./build/dev/apps/server/terva-server run examples/demo-volume.terva
+./build/dev/apps/server/terva-server run --stdio examples/demo-volume.terva
+./build/dev/apps/server/terva-server run --listen http://127.0.0.1:7777/mcp examples/demo-volume.terva
 ```
 
 ## Notes
 
-- `terva-client` currently supports a `stdio:<project-file>` connection spec for the v0 verification loop.
+- `terva-client` supports both `stdio:<project-file>` and `http://127.0.0.1:7777/mcp` connection targets.
 - Structured logs are emitted as JSON lines on `stderr` by default.
 - The desktop/Tauri scaffold is intentionally not on the first runnable path.
 
 ## Next Steps After v0
 
-- Add a reusable MCP client transport abstraction beyond the current POSIX stdio launcher.
 - Add more project schema checks and automated tests around parser, validator, and executor behavior.
 - Decide the future Rust-to-C++ boundary for the desktop shell.
 - Add platform-specific packaging and installer workflows when the headless runtime stabilizes.
-

@@ -12,8 +12,9 @@ The v0 `.terva` format is JSON and intentionally narrow.
 
 ## Backend Shape
 
-Only one backend type is supported in v0:
+Supported backend types:
 
+- `http_json`
 - `localhost_http_json`
 
 Backend fields:
@@ -44,8 +45,10 @@ Actions are named so validation can check references.
 
 - `id`
 - `backend`
-- `method`: `GET` or `POST`
+- `method`: `GET`, `POST`, or `PUT`
 - `path`
+- `query`: optional map of query parameter templates
+- `headers`: optional map of action-specific headers
 - `body`: optional JSON template
 - `success_statuses`
 
@@ -61,6 +64,12 @@ or
 - `json_pointer`
 - `equals_input`: input field name
 
+Verification may also define:
+
+- `attempts`: number of readback attempts before failure
+- `delay_ms`: delay between attempts
+- `success_delay_ms`: optional fixed delay after a successful verification, useful when a device reports the target state before it is ready for the next command
+
 ## Template Shape
 
 JSON request bodies and path strings support `{{input.field}}` placeholders.
@@ -72,7 +81,31 @@ Examples:
 
 When the whole JSON string is a placeholder, the runtime preserves the underlying JSON type instead of forcing a string.
 
+## Output Mapping
+
+Output fields can extract values from:
+
+- action response JSON
+- verification response JSON
+- input values
+- literals
+
+Optional normalization is supported:
+
+```json
+{
+  "normalized_state": {
+    "source": "verification",
+    "json_pointer": "/system",
+    "normalize": {
+      "on": "active",
+      "lona": "standby"
+    },
+    "default": "unknown"
+  }
+}
+```
+
 ## Example
 
 See [examples/demo-volume.terva](/Users/andys/Documents/ajs/Terva/examples/demo-volume.terva) for the current end-to-end example.
-
