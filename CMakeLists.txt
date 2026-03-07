@@ -16,6 +16,10 @@ list(PREPEND CMAKE_PREFIX_PATH
 
 find_package(dts CONFIG REQUIRED)
 find_package(CURL REQUIRED)
+find_package(Protobuf CONFIG QUIET)
+if(NOT Protobuf_FOUND)
+  find_package(Protobuf REQUIRED)
+endif()
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -26,6 +30,21 @@ option(TERVA_BUILD_SERVER "Build the Terva MCP server" ON)
 option(TERVA_BUILD_CLI "Build the Terva CLI client" ON)
 option(TERVA_BUILD_EXAMPLES "Build example backends and demo assets" ON)
 
+add_library(terva_protobuf INTERFACE)
+add_library(terva::protobuf ALIAS terva_protobuf)
+
+if(TARGET protobuf::libprotobuf)
+  target_link_libraries(terva_protobuf INTERFACE protobuf::libprotobuf)
+elseif(TARGET protobuf::protobuf)
+  target_link_libraries(terva_protobuf INTERFACE protobuf::protobuf)
+elseif(DEFINED Protobuf_LIBRARIES AND DEFINED Protobuf_INCLUDE_DIRS)
+  target_include_directories(terva_protobuf INTERFACE ${Protobuf_INCLUDE_DIRS})
+  target_link_libraries(terva_protobuf INTERFACE ${Protobuf_LIBRARIES})
+else()
+  message(FATAL_ERROR "Protobuf was found, but no supported libprotobuf target is available")
+endif()
+
+add_subdirectory(proto)
 add_subdirectory(core)
 
 if(TERVA_BUILD_SERVER)

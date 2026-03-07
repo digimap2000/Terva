@@ -1,27 +1,18 @@
-use serde::Serialize;
+mod error;
+mod project;
 
-#[derive(Serialize)]
-struct AppStatus {
-    product_name: String,
-    product_version: String,
-    host_platform: String,
-    core_status: String,
-}
+use error::TervaError;
+use project::ProjectDocument;
 
 #[tauri::command]
-fn app_status() -> AppStatus {
-    AppStatus {
-        product_name: "Terva".to_string(),
-        product_version: env!("CARGO_PKG_VERSION").to_string(),
-        host_platform: std::env::consts::OS.to_string(),
-        core_status: "C++ core bridge not wired yet".to_string(),
-    }
+async fn open_project_document() -> Result<Option<ProjectDocument>, TervaError> {
+    project::pick_project_document().await
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![app_status])
+        .invoke_handler(tauri::generate_handler![open_project_document])
         .run(tauri::generate_context!())
-        .expect("failed to run Terva desktop");
+        .expect("error while running Terva");
 }
-

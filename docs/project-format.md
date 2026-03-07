@@ -1,28 +1,34 @@
 # `.terva` Project Format
 
-The v0 `.terva` format is JSON and intentionally narrow.
+`.terva` files are now protobuf text format files backed by the schema in [project.proto](/Users/andys/Documents/ajs/Terva/proto/terva/project/v1/project.proto).
 
-## Root Fields
+The runtime parses textproto, converts it into Terva's internal project model, then runs the same validator and execution path as before.
 
-- `name`: project name
-- `description`: optional human-readable description
-- `logging`: optional logging config
-- `backends`: backend definitions
-- `capabilities`: capability definitions
+## Root Shape
+
+Top-level fields:
+
+- `name`
+- `description`
+- `logging`
+- `backends`
+- `capabilities`
 
 ## Backend Shape
 
-Supported backend types:
+Supported backend enums:
 
-- `http_json`
-- `localhost_http_json`
+- `BACKEND_TYPE_HTTP_JSON`
+- `BACKEND_TYPE_LOCALHOST_HTTP_JSON`
 
 Backend fields:
 
 - `id`
 - `type`
 - `base_url`
-- `headers`: optional map of string headers
+- `headers`
+
+Headers are repeated `name` / `value` entries.
 
 ## Capability Shape
 
@@ -33,11 +39,33 @@ Each capability contains:
 - `description`
 - `input_schema`
 - `actions`
-- `preconditions`: optional
-- `setup`: optional
-- `action`: main action id
-- `verification`: optional
-- `output_mapping`: optional
+- `preconditions`
+- `setup`
+- `action`
+- `verification`
+- `output_fields`
+
+## Input Schema
+
+The protobuf schema uses an explicit input-schema message instead of raw JSON.
+
+Example:
+
+```textproto
+input_schema {
+  type: "object"
+  properties {
+    name: "level"
+    type: "integer"
+    minimum { int_value: 0 }
+    maximum { int_value: 100 }
+  }
+  required: "level"
+  additional_properties: false
+}
+```
+
+This converts into the same internal JSON schema shape used by the existing validator/runtime.
 
 ## Action Shape
 
@@ -45,67 +73,126 @@ Actions are named so validation can check references.
 
 - `id`
 - `backend`
-- `method`: `GET`, `POST`, or `PUT`
+- `method`
 - `path`
-- `query`: optional map of query parameter templates
-- `headers`: optional map of action-specific headers
-- `body`: optional JSON template
+- `query`
+- `headers`
+- `body`
 - `success_statuses`
 
-## Expectation Shape
+Supported HTTP method enums:
 
-Preconditions and verification use an explicit expectation:
+- `HTTP_METHOD_GET`
+- `HTTP_METHOD_POST`
+- `HTTP_METHOD_PUT`
 
-- `json_pointer`
-- `equals`: literal expected value
+Query and header entries are repeated `name` / `value` pairs.
 
-or
+## Values
 
-- `json_pointer`
-- `equals_input`: input field name
+Prototext uses explicit typed value messages where the old JSON format used inline literals.
 
-Verification may also define:
+Supported value forms:
 
-- `attempts`: number of readback attempts before failure
-- `delay_ms`: delay between attempts
-- `success_delay_ms`: optional fixed delay after a successful verification, useful when a device reports the target state before it is ready for the next command
+- `string_value`
+- `int_value`
+- `double_value`
+- `bool_value`
+- `null_value`
+- `object_value`
+- `list_value`
 
-## Template Shape
+Example:
 
-JSON request bodies and path strings support `{{input.field}}` placeholders.
+```textproto
+expect {
+  json_pointer: "/system"
+  equals { string_value: "on" }
+}
+```
 
-Examples:
+Example object body:
 
-- `"/api/audio/{{input.device_id}}"`
-- `{ "vol": "{{input.level}}" }`
-
-When the whole JSON string is a placeholder, the runtime preserves the underlying JSON type instead of forcing a string.
-
-## Output Mapping
-
-Output fields can extract values from:
-
-- action response JSON
-- verification response JSON
-- input values
-- literals
-
-Optional normalization is supported:
-
-```json
-{
-  "normalized_state": {
-    "source": "verification",
-    "json_pointer": "/system",
-    "normalize": {
-      "on": "active",
-      "lona": "standby"
-    },
-    "default": "unknown"
+```textproto
+body {
+  object_value {
+    fields {
+      name: "vol"
+      value { string_value: "{{input.level}}" }
+    }
   }
 }
 ```
 
-## Example
+## Expectations
 
-See [examples/demo-volume.terva](/Users/andys/Documents/ajs/Terva/examples/demo-volume.terva) for the current end-to-end example.
+Preconditions and verification use explicit expectations:
+
+- `json_pointer`
+- `equals`
+
+or:
+
+- `json_pointer`
+- `equals_input`
+
+Verification may also define:
+
+- `attempts`
+- `delay_ms`
+- `success_delay_ms`
+
+## Output Fields
+
+Output fields replace the old JSON `output_mapping` object with repeated named entries.
+
+Each entry supports:
+
+- `name`
+- `source`
+- `transform`
+- `json_pointer`
+- `input_name`
+- `value`
+- `normalize`
+- `default_value`
+- `required`
+
+Supported output-source enums:
+
+- `OUTPUT_SOURCE_INPUT`
+- `OUTPUT_SOURCE_ACTION`
+- `OUTPUT_SOURCE_VERIFICATION`
+- `OUTPUT_SOURCE_LITERAL`
+
+Supported output-transform enums:
+
+- `OUTPUT_TRANSFORM_NONE`
+- `OUTPUT_TRANSFORM_MILLISECONDS_TO_SECONDS`
+- `OUTPUT_TRANSFORM_LAST_PATH_SEGMENT`
+
+Example:
+
+```textproto
+output_fields {
+  name: "normalized_state"
+  source: OUTPUT_SOURCE_ACTION
+  json_pointer: "/system"
+  normalize {
+    raw_value: "on"
+    mapped_value { string_value: "active" }
+  }
+  normalize {
+    raw_value: "lona"
+    mapped_value { string_value: "standby" }
+  }
+  default_value { string_value: "unknown" }
+}
+```
+
+## Example Files
+
+See:
+
+- [examples/demo-volume.terva](/Users/andys/Documents/ajs/Terva/examples/demo-volume.terva)
+- [streamer.terva](/Users/andys/Documents/ajs/Terva/streamer.terva)

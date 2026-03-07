@@ -1,242 +1,272 @@
-{
-  "name": "Streamer Power Control",
-  "description": "Known real-device control and playback session reads for the streamer at 192.168.1.111:15081.",
-  "logging": {
-    "sink": "stderr"
-  },
-  "backends": [
-    {
-      "id": "streamer",
-      "type": "http_json",
-      "base_url": "http://192.168.1.111:15081"
+name: "Streamer Power Control"
+description: "Known real-device control and playback session reads for the streamer at 192.168.1.111:15081."
+
+logging {
+  sink: "stderr"
+}
+
+backends {
+  id: "streamer"
+  type: BACKEND_TYPE_HTTP_JSON
+  base_url: "http://192.168.1.111:15081"
+}
+
+capabilities {
+  id: "get_playback_session"
+  tool_name: "get_playback_session"
+  description: "Read the current playback session / now playing state of the streamer."
+  input_schema {
+    type: "object"
+    additional_properties: false
+  }
+  actions {
+    id: "read_playback_session"
+    backend: "streamer"
+    method: HTTP_METHOD_GET
+    path: "/nowplaying"
+    success_statuses: 200
+  }
+  action: "read_playback_session"
+  output_fields {
+    name: "playback_state"
+    source: OUTPUT_SOURCE_ACTION
+    json_pointer: "/transportState"
+    normalize {
+      raw_value: "1"
+      mapped_value { string_value: "stopped" }
     }
-  ],
-  "capabilities": [
-    {
-      "id": "get_playback_session",
-      "tool_name": "get_playback_session",
-      "description": "Read the current playback session / now playing state of the streamer.",
-      "input_schema": {
-        "type": "object",
-        "properties": {},
-        "required": [],
-        "additionalProperties": false
-      },
-      "actions": [
-        {
-          "id": "read_playback_session",
-          "backend": "streamer",
-          "method": "GET",
-          "path": "/nowplaying",
-          "success_statuses": [200]
-        }
-      ],
-      "action": "read_playback_session",
-      "output_mapping": {
-        "playback_state": {
-          "source": "action",
-          "json_pointer": "/transportState",
-          "normalize": {
-            "1": "stopped",
-            "2": "playing",
-            "3": "paused",
-            "4": "buffering",
-            "5": "buffering",
-            "6": "paused",
-            "8": "buffering",
-            "9": "buffering"
-          },
-          "default": "unknown",
-          "required": true
-        },
-        "source": {
-          "source": "action",
-          "json_pointer": "/source",
-          "transform": "last_path_segment"
-        },
-        "title": {
-          "source": "action",
-          "json_pointer": "/title"
-        },
-        "artist": {
-          "source": "action",
-          "json_pointer": "/artistName"
-        },
-        "album": {
-          "source": "action",
-          "json_pointer": "/albumName"
-        },
-        "position_seconds": {
-          "source": "action",
-          "json_pointer": "/transportPosition",
-          "transform": "milliseconds_to_seconds"
-        },
-        "duration_seconds": {
-          "source": "action",
-          "json_pointer": "/duration",
-          "transform": "milliseconds_to_seconds"
-        },
-        "raw_transport_state": {
-          "source": "action",
-          "json_pointer": "/transportState",
-          "required": true
-        }
-      }
-    },
-    {
-      "id": "get_power_state",
-      "tool_name": "get_power_state",
-      "description": "Read the current power state of the streamer.",
-      "input_schema": {
-        "type": "object",
-        "properties": {},
-        "required": [],
-        "additionalProperties": false
-      },
-      "actions": [
-        {
-          "id": "read_power_state",
-          "backend": "streamer",
-          "method": "GET",
-          "path": "/power",
-          "success_statuses": [200]
-        }
-      ],
-      "action": "read_power_state",
-      "output_mapping": {
-        "raw_system": {
-          "source": "action",
-          "json_pointer": "/system"
-        },
-        "normalized_state": {
-          "source": "action",
-          "json_pointer": "/system",
-          "normalize": {
-            "on": "active",
-            "lona": "standby"
-          },
-          "default": "unknown"
-        }
-      }
-    },
-    {
-      "id": "enter_active",
-      "tool_name": "enter_active",
-      "description": "Put the streamer into active/on state.",
-      "input_schema": {
-        "type": "object",
-        "properties": {},
-        "required": [],
-        "additionalProperties": false
-      },
-      "actions": [
-        {
-          "id": "enter_active_request",
-          "backend": "streamer",
-          "method": "PUT",
-          "path": "/power",
-          "query": {
-            "system": "on"
-          },
-          "success_statuses": [200, 204]
-        },
-        {
-          "id": "read_power_state_after_active",
-          "backend": "streamer",
-          "method": "GET",
-          "path": "/power",
-          "success_statuses": [200]
-        }
-      ],
-      "action": "enter_active_request",
-      "verification": {
-        "action": "read_power_state_after_active",
-        "expect": {
-          "json_pointer": "/system",
-          "equals": "on"
-        },
-        "attempts": 6,
-        "delay_ms": 1000,
-        "success_delay_ms": 5000
-      },
-      "output_mapping": {
-        "requested_state": {
-          "source": "literal",
-          "value": "active"
-        },
-        "raw_final_system": {
-          "source": "verification",
-          "json_pointer": "/system"
-        },
-        "final_normalized_state": {
-          "source": "verification",
-          "json_pointer": "/system",
-          "normalize": {
-            "on": "active",
-            "lona": "standby"
-          },
-          "default": "unknown"
-        }
-      }
-    },
-    {
-      "id": "enter_standby",
-      "tool_name": "enter_standby",
-      "description": "Put the streamer into standby state.",
-      "input_schema": {
-        "type": "object",
-        "properties": {},
-        "required": [],
-        "additionalProperties": false
-      },
-      "actions": [
-        {
-          "id": "enter_standby_request",
-          "backend": "streamer",
-          "method": "PUT",
-          "path": "/power",
-          "query": {
-            "system": "lona"
-          },
-          "success_statuses": [200, 204]
-        },
-        {
-          "id": "read_power_state_after_standby",
-          "backend": "streamer",
-          "method": "GET",
-          "path": "/power",
-          "success_statuses": [200]
-        }
-      ],
-      "action": "enter_standby_request",
-      "verification": {
-        "action": "read_power_state_after_standby",
-        "expect": {
-          "json_pointer": "/system",
-          "equals": "lona"
-        },
-        "attempts": 6,
-        "delay_ms": 1000
-      },
-      "output_mapping": {
-        "requested_state": {
-          "source": "literal",
-          "value": "standby"
-        },
-        "raw_final_system": {
-          "source": "verification",
-          "json_pointer": "/system"
-        },
-        "final_normalized_state": {
-          "source": "verification",
-          "json_pointer": "/system",
-          "normalize": {
-            "on": "active",
-            "lona": "standby"
-          },
-          "default": "unknown"
-        }
-      }
+    normalize {
+      raw_value: "2"
+      mapped_value { string_value: "playing" }
     }
-  ]
+    normalize {
+      raw_value: "3"
+      mapped_value { string_value: "paused" }
+    }
+    normalize {
+      raw_value: "4"
+      mapped_value { string_value: "buffering" }
+    }
+    normalize {
+      raw_value: "5"
+      mapped_value { string_value: "buffering" }
+    }
+    normalize {
+      raw_value: "6"
+      mapped_value { string_value: "paused" }
+    }
+    normalize {
+      raw_value: "8"
+      mapped_value { string_value: "buffering" }
+    }
+    normalize {
+      raw_value: "9"
+      mapped_value { string_value: "buffering" }
+    }
+    default_value { string_value: "unknown" }
+    required: true
+  }
+  output_fields {
+    name: "source"
+    source: OUTPUT_SOURCE_ACTION
+    transform: OUTPUT_TRANSFORM_LAST_PATH_SEGMENT
+    json_pointer: "/source"
+  }
+  output_fields {
+    name: "title"
+    source: OUTPUT_SOURCE_ACTION
+    json_pointer: "/title"
+  }
+  output_fields {
+    name: "artist"
+    source: OUTPUT_SOURCE_ACTION
+    json_pointer: "/artistName"
+  }
+  output_fields {
+    name: "album"
+    source: OUTPUT_SOURCE_ACTION
+    json_pointer: "/albumName"
+  }
+  output_fields {
+    name: "position_seconds"
+    source: OUTPUT_SOURCE_ACTION
+    transform: OUTPUT_TRANSFORM_MILLISECONDS_TO_SECONDS
+    json_pointer: "/transportPosition"
+  }
+  output_fields {
+    name: "duration_seconds"
+    source: OUTPUT_SOURCE_ACTION
+    transform: OUTPUT_TRANSFORM_MILLISECONDS_TO_SECONDS
+    json_pointer: "/duration"
+  }
+  output_fields {
+    name: "raw_transport_state"
+    source: OUTPUT_SOURCE_ACTION
+    json_pointer: "/transportState"
+    required: true
+  }
+}
+
+capabilities {
+  id: "get_power_state"
+  tool_name: "get_power_state"
+  description: "Read the current power state of the streamer."
+  input_schema {
+    type: "object"
+    additional_properties: false
+  }
+  actions {
+    id: "read_power_state"
+    backend: "streamer"
+    method: HTTP_METHOD_GET
+    path: "/power"
+    success_statuses: 200
+  }
+  action: "read_power_state"
+  output_fields {
+    name: "raw_system"
+    source: OUTPUT_SOURCE_ACTION
+    json_pointer: "/system"
+  }
+  output_fields {
+    name: "normalized_state"
+    source: OUTPUT_SOURCE_ACTION
+    json_pointer: "/system"
+    normalize {
+      raw_value: "on"
+      mapped_value { string_value: "active" }
+    }
+    normalize {
+      raw_value: "lona"
+      mapped_value { string_value: "standby" }
+    }
+    default_value { string_value: "unknown" }
+  }
+}
+
+capabilities {
+  id: "enter_active"
+  tool_name: "enter_active"
+  description: "Put the streamer into active/on state."
+  input_schema {
+    type: "object"
+    additional_properties: false
+  }
+  actions {
+    id: "enter_active_request"
+    backend: "streamer"
+    method: HTTP_METHOD_PUT
+    path: "/power"
+    query {
+      name: "system"
+      value: "on"
+    }
+    success_statuses: 200
+    success_statuses: 204
+  }
+  actions {
+    id: "read_power_state_after_active"
+    backend: "streamer"
+    method: HTTP_METHOD_GET
+    path: "/power"
+    success_statuses: 200
+  }
+  action: "enter_active_request"
+  verification {
+    action: "read_power_state_after_active"
+    expect {
+      json_pointer: "/system"
+      equals { string_value: "on" }
+    }
+    attempts: 6
+    delay_ms: 1000
+    success_delay_ms: 5000
+  }
+  output_fields {
+    name: "requested_state"
+    source: OUTPUT_SOURCE_LITERAL
+    value { string_value: "active" }
+  }
+  output_fields {
+    name: "raw_final_system"
+    source: OUTPUT_SOURCE_VERIFICATION
+    json_pointer: "/system"
+  }
+  output_fields {
+    name: "final_normalized_state"
+    source: OUTPUT_SOURCE_VERIFICATION
+    json_pointer: "/system"
+    normalize {
+      raw_value: "on"
+      mapped_value { string_value: "active" }
+    }
+    normalize {
+      raw_value: "lona"
+      mapped_value { string_value: "standby" }
+    }
+    default_value { string_value: "unknown" }
+  }
+}
+
+capabilities {
+  id: "enter_standby"
+  tool_name: "enter_standby"
+  description: "Put the streamer into standby state."
+  input_schema {
+    type: "object"
+    additional_properties: false
+  }
+  actions {
+    id: "enter_standby_request"
+    backend: "streamer"
+    method: HTTP_METHOD_PUT
+    path: "/power"
+    query {
+      name: "system"
+      value: "lona"
+    }
+    success_statuses: 200
+    success_statuses: 204
+  }
+  actions {
+    id: "read_power_state_after_standby"
+    backend: "streamer"
+    method: HTTP_METHOD_GET
+    path: "/power"
+    success_statuses: 200
+  }
+  action: "enter_standby_request"
+  verification {
+    action: "read_power_state_after_standby"
+    expect {
+      json_pointer: "/system"
+      equals { string_value: "lona" }
+    }
+    attempts: 6
+    delay_ms: 1000
+  }
+  output_fields {
+    name: "requested_state"
+    source: OUTPUT_SOURCE_LITERAL
+    value { string_value: "standby" }
+  }
+  output_fields {
+    name: "raw_final_system"
+    source: OUTPUT_SOURCE_VERIFICATION
+    json_pointer: "/system"
+  }
+  output_fields {
+    name: "final_normalized_state"
+    source: OUTPUT_SOURCE_VERIFICATION
+    json_pointer: "/system"
+    normalize {
+      raw_value: "on"
+      mapped_value { string_value: "active" }
+    }
+    normalize {
+      raw_value: "lona"
+      mapped_value { string_value: "standby" }
+    }
+    default_value { string_value: "unknown" }
+  }
 }

@@ -1,5 +1,11 @@
 #include "terva/core/project/parser.hpp"
 
+#include "terva/project/v1/project.pb.h"
+
+#include <google/protobuf/io/tokenizer.h>
+#include <google/protobuf/io/zero_copy_stream_impl.h>
+#include <google/protobuf/text_format.h>
+
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -7,537 +13,518 @@
 namespace terva::core::project {
 namespace {
 
-using json_object = json::object_t;
+namespace proto = ::terva::project::v1;
 
-[[nodiscard]] std::expected<const json*, std::string> require_field(
-    const json& object,
-    std::string_view field,
+class textproto_error_collector final
+    : public google::protobuf::io::ErrorCollector {
+ public:
+  void RecordError(const int line,
+                   const google::protobuf::io::ColumnNumber column,
+                   const absl::string_view message) override {
+    append_message(line, column, message);
+  }
+
+  void RecordWarning(const int line,
+                     const google::protobuf::io::ColumnNumber column,
+                     const absl::string_view message) override {
+    append_message(line, column, message);
+  }
+
+  [[nodiscard]] const std::string& summary() const noexcept { return summary_; }
+
+ private:
+  void append_message(const int line,
+                      const int column,
+                      const absl::string_view message) {
+    if (!summary_.empty()) {
+      summary_.push_back('\n');
+    }
+    summary_.append("line ");
+    summary_.append(std::to_string(line + 1));
+    summary_.append(", column ");
+    summary_.append(std::to_string(column + 1));
+    summary_.append(": ");
+    summary_.append(message.data(), message.size());
+  }
+  std::string summary_;
+};
+
+[[nodiscard]] std::expected<std::string, std::string> read_file(
+    const std::filesystem::path& path) {
+  std::ifstream stream(path);
+  if (!stream) {
+    return std::unexpected("unable to open project file: " + path.string());
+  }
+
+  std::stringstream buffer;
+  buffer << stream.rdbuf();
+  return buffer.str();
+}
+
+[[nodiscard]] std::expected<json, std::string> convert_data_value(
+    const proto::DataValue& value,
+    std::string_view path);
+
+[[nodiscard]] std::expected<std::map<std::string, std::string, std::less<>>,
+                            std::string>
+convert_named_string_list(
+    const google::protobuf::RepeatedPtrField<proto::NamedString>& values,
     std::string_view path) {
-  if (!object.is_object()) {
-    return std::unexpected(std::string(path) + " must be an object");
+  std::map<std::string, std::string, std::less<>> result;
+  for (int index = 0; index < values.size(); ++index) {
+    const auto& value = values.Get(index);
+    const auto insert_result = result.emplace(value.name(), value.value());
+    if (!insert_result.second) {
+      return std::unexpected(std::string(path) + "[" + value.name() +
+                             "] is duplicated");
+    }
   }
-
-  const auto iterator = object.find(field);
-  if (iterator == object.end()) {
-    return std::unexpected(std::string(path) + "." + std::string(field) + " is required");
-  }
-
-  return &*iterator;
+  return result;
 }
 
-[[nodiscard]] std::expected<std::string, std::string> require_string(
-    const json& object,
-    std::string_view field,
+[[nodiscard]] std::expected<json, std::string> convert_object_value(
+    const proto::DataObject& object,
     std::string_view path) {
-  const auto value = require_field(object, field, path);
-  if (!value) {
-    return std::unexpected(value.error());
+  json result = json::object();
+  for (int index = 0; index < object.fields_size(); ++index) {
+    const auto& field = object.fields(index);
+    if (result.contains(field.name())) {
+      return std::unexpected(std::string(path) + "." + field.name() +
+                             " is duplicated");
+    }
+    auto value = convert_data_value(field.value(),
+                                    std::string(path) + "." + field.name());
+    if (!value) {
+      return std::unexpected(value.error());
+    }
+    result[field.name()] = std::move(*value);
   }
-  if (!(*value)->is_string()) {
-    return std::unexpected(std::string(path) + "." + std::string(field) + " must be a string");
-  }
-  return (*value)->get<std::string>();
+  return result;
 }
 
-[[nodiscard]] std::expected<const json*, std::string> require_array(
-    const json& object,
-    std::string_view field,
+[[nodiscard]] std::expected<json, std::string> convert_data_value(
+    const proto::DataValue& value,
     std::string_view path) {
-  const auto value = require_field(object, field, path);
-  if (!value) {
-    return std::unexpected(value.error());
+  switch (value.kind_case()) {
+    case proto::DataValue::kNullValue:
+      return json(nullptr);
+    case proto::DataValue::kStringValue:
+      return json(value.string_value());
+    case proto::DataValue::kIntValue:
+      return json(value.int_value());
+    case proto::DataValue::kDoubleValue:
+      return json(value.double_value());
+    case proto::DataValue::kBoolValue:
+      return json(value.bool_value());
+    case proto::DataValue::kObjectValue:
+      return convert_object_value(value.object_value(), path);
+    case proto::DataValue::kListValue: {
+      json result = json::array();
+      for (int index = 0; index < value.list_value().values_size(); ++index) {
+        auto item = convert_data_value(
+            value.list_value().values(index),
+            std::string(path) + "[" + std::to_string(index) + "]");
+        if (!item) {
+          return std::unexpected(item.error());
+        }
+        result.push_back(std::move(*item));
+      }
+      return result;
+    }
+    case proto::DataValue::KIND_NOT_SET:
+      return std::unexpected(std::string(path) + " must define a value");
   }
-  if (!(*value)->is_array()) {
-    return std::unexpected(std::string(path) + "." + std::string(field) + " must be an array");
-  }
-  return *value;
+  return std::unexpected(std::string(path) + " contains an unsupported value");
 }
 
-[[nodiscard]] std::expected<backend_definition, std::string> parse_backend(
-    const json& value,
-    std::size_t index) {
-  const auto path = std::string("backends[") + std::to_string(index) + "]";
-  if (!value.is_object()) {
-    return std::unexpected(path + " must be an object");
-  }
-
-  backend_definition backend;
-  auto id = require_string(value, "id", path);
-  if (!id) {
-    return std::unexpected(id.error());
-  }
-  backend.id = std::move(*id);
-
-  auto type_name = require_string(value, "type", path);
-  if (!type_name) {
-    return std::unexpected(type_name.error());
-  }
-  const auto parsed_type = parse_backend_type(*type_name);
-  if (!parsed_type) {
-    return std::unexpected(path + ".type is not supported: " + *type_name);
-  }
-  backend.type = *parsed_type;
-
-  auto base_url = require_string(value, "base_url", path);
-  if (!base_url) {
-    return std::unexpected(base_url.error());
-  }
-  backend.base_url = std::move(*base_url);
-
-  if (const auto headers = value.find("headers"); headers != value.end()) {
-    if (!headers->is_object()) {
-      return std::unexpected(path + ".headers must be an object");
-    }
-    for (const auto& [name, header_value] : headers->items()) {
-      if (!header_value.is_string()) {
-        return std::unexpected(path + ".headers." + name + " must be a string");
-      }
-      backend.headers.emplace(name, header_value.get<std::string>());
-    }
-  }
-
-  return backend;
-}
-
-[[nodiscard]] std::expected<http_action_definition, std::string> parse_action(
-    const json& value,
-    std::string_view capability_path,
-    std::size_t index) {
-  const auto path =
-      std::string(capability_path) + ".actions[" + std::to_string(index) + "]";
-  if (!value.is_object()) {
-    return std::unexpected(path + " must be an object");
-  }
-
-  http_action_definition action;
-  auto id = require_string(value, "id", path);
-  if (!id) {
-    return std::unexpected(id.error());
-  }
-  action.id = std::move(*id);
-
-  if (const auto description = value.find("description");
-      description != value.end()) {
-    if (!description->is_string()) {
-      return std::unexpected(path + ".description must be a string");
-    }
-    action.description = description->get<std::string>();
-  }
-
-  auto backend_id = require_string(value, "backend", path);
-  if (!backend_id) {
-    return std::unexpected(backend_id.error());
-  }
-  action.backend_id = std::move(*backend_id);
-
-  auto method_name = require_string(value, "method", path);
-  if (!method_name) {
-    return std::unexpected(method_name.error());
-  }
-  const auto parsed_method = parse_http_method(*method_name);
-  if (!parsed_method) {
-    return std::unexpected(path + ".method is not supported: " + *method_name);
-  }
-  action.method = *parsed_method;
-
-  auto action_path = require_string(value, "path", path);
-  if (!action_path) {
-    return std::unexpected(action_path.error());
-  }
-  action.path_template = std::move(*action_path);
-
-  if (const auto query = value.find("query"); query != value.end()) {
-    if (!query->is_object()) {
-      return std::unexpected(path + ".query must be an object");
-    }
-    for (const auto& [name, query_value] : query->items()) {
-      if (!query_value.is_string()) {
-        return std::unexpected(path + ".query." + name + " must be a string");
-      }
-      action.query_parameters.emplace(name, query_value.get<std::string>());
-    }
-  }
-
-  if (const auto headers = value.find("headers"); headers != value.end()) {
-    if (!headers->is_object()) {
-      return std::unexpected(path + ".headers must be an object");
-    }
-    for (const auto& [name, header_value] : headers->items()) {
-      if (!header_value.is_string()) {
-        return std::unexpected(path + ".headers." + name + " must be a string");
-      }
-      action.headers.emplace(name, header_value.get<std::string>());
-    }
-  }
-
-  if (const auto body = value.find("body"); body != value.end()) {
-    action.body_template = *body;
-  }
-
-  if (const auto statuses = value.find("success_statuses");
-      statuses != value.end()) {
-    if (!statuses->is_array()) {
-      return std::unexpected(path + ".success_statuses must be an array");
-    }
-    action.success_statuses.clear();
-    for (std::size_t status_index = 0; status_index < statuses->size();
-         ++status_index) {
-      if (!(*statuses)[status_index].is_number_integer()) {
-        return std::unexpected(path + ".success_statuses[" +
-                               std::to_string(status_index) +
-                               "] must be an integer");
-      }
-      action.success_statuses.push_back((*statuses)[status_index].get<int>());
-    }
-  }
-
-  return action;
-}
-
-[[nodiscard]] std::expected<value_expectation, std::string> parse_expectation(
-    const json& value,
+[[nodiscard]] std::expected<backend_type, std::string> convert_backend_type(
+    const proto::BackendType value,
     std::string_view path) {
-  if (!value.is_object()) {
-    return std::unexpected(std::string(path) + " must be an object");
+  switch (value) {
+    case proto::BACKEND_TYPE_HTTP_JSON:
+      return backend_type::http_json;
+    case proto::BACKEND_TYPE_LOCALHOST_HTTP_JSON:
+      return backend_type::localhost_http_json;
+    case proto::BACKEND_TYPE_UNSPECIFIED:
+      break;
+    default:
+      break;
   }
-
-  value_expectation expectation;
-  auto json_pointer = require_string(value, "json_pointer", path);
-  if (!json_pointer) {
-    return std::unexpected(json_pointer.error());
-  }
-  expectation.json_pointer = std::move(*json_pointer);
-
-  if (const auto literal = value.find("equals"); literal != value.end()) {
-    expectation.equals = *literal;
-  }
-  if (const auto input_name = value.find("equals_input");
-      input_name != value.end()) {
-    if (!input_name->is_string()) {
-      return std::unexpected(std::string(path) + ".equals_input must be a string");
-    }
-    expectation.equals_input = input_name->get<std::string>();
-  }
-
-  return expectation;
+  return std::unexpected(std::string(path) + " is not supported");
 }
 
-[[nodiscard]] std::expected<precondition_definition, std::string>
-parse_precondition(const json& value,
-                   std::string_view capability_path,
-                   std::size_t index) {
-  const auto path =
-      std::string(capability_path) + ".preconditions[" + std::to_string(index) + "]";
-  if (!value.is_object()) {
-    return std::unexpected(path + " must be an object");
+[[nodiscard]] std::expected<http_method, std::string> convert_http_method(
+    const proto::HttpMethod value,
+    std::string_view path) {
+  switch (value) {
+    case proto::HTTP_METHOD_GET:
+      return http_method::get;
+    case proto::HTTP_METHOD_POST:
+      return http_method::post;
+    case proto::HTTP_METHOD_PUT:
+      return http_method::put;
+    case proto::HTTP_METHOD_UNSPECIFIED:
+      break;
+    default:
+      break;
   }
-
-  precondition_definition precondition;
-  auto id = require_string(value, "id", path);
-  if (!id) {
-    return std::unexpected(id.error());
-  }
-  precondition.id = std::move(*id);
-
-  if (const auto description = value.find("description");
-      description != value.end()) {
-    if (!description->is_string()) {
-      return std::unexpected(path + ".description must be a string");
-    }
-    precondition.description = description->get<std::string>();
-  }
-
-  auto action_id = require_string(value, "action", path);
-  if (!action_id) {
-    return std::unexpected(action_id.error());
-  }
-  precondition.action_id = std::move(*action_id);
-
-  const auto expectation = require_field(value, "expect", path);
-  if (!expectation) {
-    return std::unexpected(expectation.error());
-  }
-  auto parsed_expectation = parse_expectation(**expectation, path + ".expect");
-  if (!parsed_expectation) {
-    return std::unexpected(parsed_expectation.error());
-  }
-  precondition.expect = std::move(*parsed_expectation);
-
-  return precondition;
+  return std::unexpected(std::string(path) + " is not supported");
 }
 
-[[nodiscard]] std::expected<setup_step_definition, std::string> parse_setup_step(
-    const json& value,
-    std::string_view capability_path,
-    std::size_t index) {
-  const auto path =
-      std::string(capability_path) + ".setup[" + std::to_string(index) + "]";
-  if (!value.is_object()) {
-    return std::unexpected(path + " must be an object");
+[[nodiscard]] std::expected<output_source, std::string> convert_output_source(
+    const proto::OutputSource value,
+    std::string_view path) {
+  switch (value) {
+    case proto::OUTPUT_SOURCE_INPUT:
+      return output_source::input;
+    case proto::OUTPUT_SOURCE_ACTION:
+      return output_source::action;
+    case proto::OUTPUT_SOURCE_VERIFICATION:
+      return output_source::verification;
+    case proto::OUTPUT_SOURCE_LITERAL:
+      return output_source::literal;
+    case proto::OUTPUT_SOURCE_UNSPECIFIED:
+      break;
+    default:
+      break;
   }
-
-  setup_step_definition step;
-  auto id = require_string(value, "id", path);
-  if (!id) {
-    return std::unexpected(id.error());
-  }
-  step.id = std::move(*id);
-
-  if (const auto description = value.find("description");
-      description != value.end()) {
-    if (!description->is_string()) {
-      return std::unexpected(path + ".description must be a string");
-    }
-    step.description = description->get<std::string>();
-  }
-
-  auto for_precondition = require_string(value, "for_precondition", path);
-  if (!for_precondition) {
-    return std::unexpected(for_precondition.error());
-  }
-  step.for_precondition = std::move(*for_precondition);
-
-  auto action_id = require_string(value, "action", path);
-  if (!action_id) {
-    return std::unexpected(action_id.error());
-  }
-  step.action_id = std::move(*action_id);
-
-  return step;
+  return std::unexpected(std::string(path) + " is not supported");
 }
 
-[[nodiscard]] std::expected<verification_definition, std::string> parse_verification(
-    const json& value,
-    std::string_view capability_path) {
-  const auto path = std::string(capability_path) + ".verification";
-  if (!value.is_object()) {
-    return std::unexpected(path + " must be an object");
+[[nodiscard]] output_transform convert_output_transform(
+    const proto::OutputTransform value) noexcept {
+  switch (value) {
+    case proto::OUTPUT_TRANSFORM_MILLISECONDS_TO_SECONDS:
+      return output_transform::milliseconds_to_seconds;
+    case proto::OUTPUT_TRANSFORM_LAST_PATH_SEGMENT:
+      return output_transform::last_path_segment;
+    case proto::OUTPUT_TRANSFORM_UNSPECIFIED:
+    case proto::OUTPUT_TRANSFORM_NONE:
+      return output_transform::none;
+    default:
+      return output_transform::none;
   }
-
-  verification_definition verification;
-  auto action_id = require_string(value, "action", path);
-  if (!action_id) {
-    return std::unexpected(action_id.error());
-  }
-  verification.action_id = std::move(*action_id);
-
-  const auto expectation = require_field(value, "expect", path);
-  if (!expectation) {
-    return std::unexpected(expectation.error());
-  }
-  auto parsed_expectation = parse_expectation(**expectation, path + ".expect");
-  if (!parsed_expectation) {
-    return std::unexpected(parsed_expectation.error());
-  }
-  verification.expect = std::move(*parsed_expectation);
-
-  if (const auto attempts = value.find("attempts"); attempts != value.end()) {
-    if (!attempts->is_number_integer()) {
-      return std::unexpected(path + ".attempts must be an integer");
-    }
-    verification.attempts = attempts->get<int>();
-  }
-  if (const auto delay_ms = value.find("delay_ms"); delay_ms != value.end()) {
-    if (!delay_ms->is_number_integer()) {
-      return std::unexpected(path + ".delay_ms must be an integer");
-    }
-    verification.delay_ms = delay_ms->get<int>();
-  }
-  if (const auto success_delay_ms = value.find("success_delay_ms");
-      success_delay_ms != value.end()) {
-    if (!success_delay_ms->is_number_integer()) {
-      return std::unexpected(path + ".success_delay_ms must be an integer");
-    }
-    verification.success_delay_ms = success_delay_ms->get<int>();
-  }
-
-  return verification;
 }
 
-[[nodiscard]] std::expected<output_field_mapping, std::string> parse_output_mapping(
-    std::string name,
-    const json& value,
-    std::string_view capability_path) {
-  const auto path =
-      std::string(capability_path) + ".output_mapping." + std::string(name);
-  if (!value.is_object()) {
-    return std::unexpected(path + " must be an object");
+[[nodiscard]] std::expected<value_expectation, std::string> convert_expectation(
+    const proto::ValueExpectation& source,
+    std::string_view path) {
+  value_expectation result;
+  result.json_pointer = source.json_pointer();
+
+  switch (source.matcher_case()) {
+    case proto::ValueExpectation::kEquals: {
+      auto equals = convert_data_value(source.equals(), std::string(path) + ".equals");
+      if (!equals) {
+        return std::unexpected(equals.error());
+      }
+      result.equals = std::move(*equals);
+      break;
+    }
+    case proto::ValueExpectation::kEqualsInput:
+      result.equals_input = source.equals_input();
+      break;
+    case proto::ValueExpectation::MATCHER_NOT_SET:
+      break;
   }
 
-  output_field_mapping mapping;
-  mapping.name = std::move(name);
-
-  auto source_name = require_string(value, "source", path);
-  if (!source_name) {
-    return std::unexpected(source_name.error());
-  }
-  const auto parsed_source = parse_output_source(*source_name);
-  if (!parsed_source) {
-    return std::unexpected(path + ".source is not supported: " + *source_name);
-  }
-  mapping.source = *parsed_source;
-
-  if (const auto json_pointer = value.find("json_pointer");
-      json_pointer != value.end()) {
-    if (!json_pointer->is_string()) {
-      return std::unexpected(path + ".json_pointer must be a string");
-    }
-    mapping.json_pointer = json_pointer->get<std::string>();
-  }
-  if (const auto input_name = value.find("input_name");
-      input_name != value.end()) {
-    if (!input_name->is_string()) {
-      return std::unexpected(path + ".input_name must be a string");
-    }
-    mapping.input_name = input_name->get<std::string>();
-  }
-  if (const auto literal = value.find("value"); literal != value.end()) {
-    mapping.value = *literal;
-  }
-  if (const auto transform = value.find("transform"); transform != value.end()) {
-    if (!transform->is_string()) {
-      return std::unexpected(path + ".transform must be a string");
-    }
-    const auto parsed_transform =
-        parse_output_transform(transform->get<std::string>());
-    if (!parsed_transform) {
-      return std::unexpected(path + ".transform is not supported: " +
-                             transform->get<std::string>());
-    }
-    mapping.transform = *parsed_transform;
-  }
-  if (const auto normalize = value.find("normalize"); normalize != value.end()) {
-    if (!normalize->is_object()) {
-      return std::unexpected(path + ".normalize must be an object");
-    }
-    for (const auto& [raw_value, mapped_value] : normalize->items()) {
-      mapping.normalize.emplace(raw_value, mapped_value);
-    }
-  }
-  if (const auto default_value = value.find("default"); default_value != value.end()) {
-    mapping.default_value = *default_value;
-  }
-  if (const auto required = value.find("required"); required != value.end()) {
-    if (!required->is_boolean()) {
-      return std::unexpected(path + ".required must be a boolean");
-    }
-    mapping.required = required->get<bool>();
-  }
-
-  return mapping;
+  return result;
 }
 
-[[nodiscard]] std::expected<capability_definition, std::string> parse_capability(
-    const json& value,
-    std::size_t index) {
-  const auto path = std::string("capabilities[") + std::to_string(index) + "]";
-  if (!value.is_object()) {
-    return std::unexpected(path + " must be an object");
-  }
+[[nodiscard]] std::expected<json, std::string> convert_input_schema(
+    const proto::InputSchema& source,
+    std::string_view path) {
+  json schema = json::object();
+  schema["type"] = source.type();
+  schema["properties"] = json::object();
 
-  capability_definition capability;
-
-  auto id = require_string(value, "id", path);
-  if (!id) {
-    return std::unexpected(id.error());
-  }
-  capability.id = std::move(*id);
-
-  auto tool_name = require_string(value, "tool_name", path);
-  if (!tool_name) {
-    return std::unexpected(tool_name.error());
-  }
-  capability.tool_name = std::move(*tool_name);
-
-  auto description = require_string(value, "description", path);
-  if (!description) {
-    return std::unexpected(description.error());
-  }
-  capability.description = std::move(*description);
-
-  const auto input_schema = require_field(value, "input_schema", path);
-  if (!input_schema) {
-    return std::unexpected(input_schema.error());
-  }
-  if (!(*input_schema)->is_object()) {
-    return std::unexpected(path + ".input_schema must be an object");
-  }
-  capability.input_schema = **input_schema;
-
-  auto actions = require_array(value, "actions", path);
-  if (!actions) {
-    return std::unexpected(actions.error());
-  }
-  for (std::size_t action_index = 0; action_index < (*actions)->size();
-       ++action_index) {
-    auto action = parse_action((**actions)[action_index], path, action_index);
-    if (!action) {
-      return std::unexpected(action.error());
+  for (int index = 0; index < source.properties_size(); ++index) {
+    const auto& property = source.properties(index);
+    if (schema["properties"].contains(property.name())) {
+      return std::unexpected(std::string(path) + ".properties[" + property.name() +
+                             "] is duplicated");
     }
-    capability.actions.push_back(std::move(*action));
+    json property_schema = json::object();
+    property_schema["type"] = property.type();
+    if (property.has_minimum()) {
+      auto minimum = convert_data_value(
+          property.minimum(),
+          std::string(path) + ".properties[" + property.name() + "].minimum");
+      if (!minimum) {
+        return std::unexpected(minimum.error());
+      }
+      property_schema["minimum"] = std::move(*minimum);
+    }
+    if (property.has_maximum()) {
+      auto maximum = convert_data_value(
+          property.maximum(),
+          std::string(path) + ".properties[" + property.name() + "].maximum");
+      if (!maximum) {
+        return std::unexpected(maximum.error());
+      }
+      property_schema["maximum"] = std::move(*maximum);
+    }
+    schema["properties"][property.name()] = std::move(property_schema);
   }
 
-  if (const auto preconditions = value.find("preconditions");
-      preconditions != value.end()) {
-    if (!preconditions->is_array()) {
-      return std::unexpected(path + ".preconditions must be an array");
+  if (!source.required().empty()) {
+    schema["required"] = json::array();
+    for (const auto& required : source.required()) {
+      schema["required"].push_back(required);
     }
-    for (std::size_t precondition_index = 0;
-         precondition_index < preconditions->size();
+  }
+
+  if (source.has_additional_properties()) {
+    schema["additionalProperties"] = source.additional_properties();
+  }
+
+  return schema;
+}
+
+[[nodiscard]] std::expected<project_definition, std::string> convert_project(
+    const proto::ProjectDefinition& source,
+    const std::filesystem::path& path) {
+  project_definition project;
+  project.source_path = path;
+  project.name = source.name();
+  if (!source.description().empty()) {
+    project.description = source.description();
+  }
+  if (source.has_logging()) {
+    if (!source.logging().sink().empty()) {
+      project.logging.sink = source.logging().sink();
+    }
+    if (!source.logging().file_path().empty()) {
+      project.logging.file_path = std::filesystem::path(source.logging().file_path());
+    }
+  }
+
+  for (int backend_index = 0; backend_index < source.backends_size();
+       ++backend_index) {
+    const auto& backend_proto = source.backends(backend_index);
+    backend_definition backend;
+    backend.id = backend_proto.id();
+    auto type = convert_backend_type(
+        backend_proto.type(),
+        "project.backends[" + std::to_string(backend_index) + "].type");
+    if (!type) {
+      return std::unexpected(type.error());
+    }
+    backend.type = *type;
+    backend.base_url = backend_proto.base_url();
+    auto headers = convert_named_string_list(
+        backend_proto.headers(),
+        "project.backends[" + std::to_string(backend_index) + "].headers");
+    if (!headers) {
+      return std::unexpected(headers.error());
+    }
+    backend.headers = std::move(*headers);
+    project.backends.push_back(std::move(backend));
+  }
+
+  for (int capability_index = 0; capability_index < source.capabilities_size();
+       ++capability_index) {
+    const auto& capability_proto = source.capabilities(capability_index);
+    capability_definition capability;
+    capability.id = capability_proto.id();
+    capability.tool_name = capability_proto.tool_name();
+    capability.description = capability_proto.description();
+
+    if (!capability_proto.has_input_schema()) {
+      return std::unexpected("project.capabilities[" +
+                             std::to_string(capability_index) +
+                             "].input_schema is required");
+    }
+    auto input_schema = convert_input_schema(
+        capability_proto.input_schema(),
+        "project.capabilities[" + std::to_string(capability_index) + "].input_schema");
+    if (!input_schema) {
+      return std::unexpected(input_schema.error());
+    }
+    capability.input_schema = std::move(*input_schema);
+
+    for (int action_index = 0; action_index < capability_proto.actions_size();
+         ++action_index) {
+      const auto& action_proto = capability_proto.actions(action_index);
+      http_action_definition action;
+      action.id = action_proto.id();
+      action.description = action_proto.description();
+      action.backend_id = action_proto.backend();
+      auto method = convert_http_method(
+          action_proto.method(),
+          "project.capabilities[" + std::to_string(capability_index) +
+              "].actions[" + std::to_string(action_index) + "].method");
+      if (!method) {
+        return std::unexpected(method.error());
+      }
+      action.method = *method;
+      action.path_template = action_proto.path();
+
+      auto query = convert_named_string_list(
+          action_proto.query(),
+          "project.capabilities[" + std::to_string(capability_index) +
+              "].actions[" + std::to_string(action_index) + "].query");
+      if (!query) {
+        return std::unexpected(query.error());
+      }
+      action.query_parameters = std::move(*query);
+
+      auto headers = convert_named_string_list(
+          action_proto.headers(),
+          "project.capabilities[" + std::to_string(capability_index) +
+              "].actions[" + std::to_string(action_index) + "].headers");
+      if (!headers) {
+        return std::unexpected(headers.error());
+      }
+      action.headers = std::move(*headers);
+
+      if (action_proto.has_body()) {
+        auto body = convert_data_value(
+            action_proto.body(),
+            "project.capabilities[" + std::to_string(capability_index) +
+                "].actions[" + std::to_string(action_index) + "].body");
+        if (!body) {
+          return std::unexpected(body.error());
+        }
+        action.body_template = std::move(*body);
+      }
+
+      if (!action_proto.success_statuses().empty()) {
+        action.success_statuses.assign(action_proto.success_statuses().begin(),
+                                       action_proto.success_statuses().end());
+      }
+
+      capability.actions.push_back(std::move(action));
+    }
+
+    for (int precondition_index = 0;
+         precondition_index < capability_proto.preconditions_size();
          ++precondition_index) {
-      auto precondition = parse_precondition(
-          (*preconditions)[precondition_index], path, precondition_index);
-      if (!precondition) {
-        return std::unexpected(precondition.error());
+      const auto& precondition_proto =
+          capability_proto.preconditions(precondition_index);
+      precondition_definition precondition;
+      precondition.id = precondition_proto.id();
+      precondition.description = precondition_proto.description();
+      precondition.action_id = precondition_proto.action();
+      auto expectation = convert_expectation(
+          precondition_proto.expect(),
+          "project.capabilities[" + std::to_string(capability_index) +
+              "].preconditions[" + std::to_string(precondition_index) + "].expect");
+      if (!expectation) {
+        return std::unexpected(expectation.error());
       }
-      capability.preconditions.push_back(std::move(*precondition));
+      precondition.expect = std::move(*expectation);
+      capability.preconditions.push_back(std::move(precondition));
     }
-  }
 
-  if (const auto setup_steps = value.find("setup"); setup_steps != value.end()) {
-    if (!setup_steps->is_array()) {
-      return std::unexpected(path + ".setup must be an array");
-    }
-    for (std::size_t setup_index = 0; setup_index < setup_steps->size();
+    for (int setup_index = 0; setup_index < capability_proto.setup_size();
          ++setup_index) {
-      auto setup = parse_setup_step((*setup_steps)[setup_index], path, setup_index);
-      if (!setup) {
-        return std::unexpected(setup.error());
+      const auto& setup_proto = capability_proto.setup(setup_index);
+      setup_step_definition setup;
+      setup.id = setup_proto.id();
+      setup.description = setup_proto.description();
+      setup.for_precondition = setup_proto.for_precondition();
+      setup.action_id = setup_proto.action();
+      capability.setup_steps.push_back(std::move(setup));
+    }
+
+    capability.main_action_id = capability_proto.action();
+
+    if (capability_proto.has_verification()) {
+      verification_definition verification;
+      verification.action_id = capability_proto.verification().action();
+      auto expectation = convert_expectation(
+          capability_proto.verification().expect(),
+          "project.capabilities[" + std::to_string(capability_index) +
+              "].verification.expect");
+      if (!expectation) {
+        return std::unexpected(expectation.error());
       }
-      capability.setup_steps.push_back(std::move(*setup));
+      verification.expect = std::move(*expectation);
+      verification.attempts = capability_proto.verification().has_attempts()
+                                  ? capability_proto.verification().attempts()
+                                  : 1;
+      verification.delay_ms = capability_proto.verification().has_delay_ms()
+                                  ? capability_proto.verification().delay_ms()
+                                  : 0;
+      verification.success_delay_ms =
+          capability_proto.verification().has_success_delay_ms()
+              ? capability_proto.verification().success_delay_ms()
+              : 0;
+      capability.verification = std::move(verification);
     }
-  }
 
-  auto action_id = require_string(value, "action", path);
-  if (!action_id) {
-    return std::unexpected(action_id.error());
-  }
-  capability.main_action_id = std::move(*action_id);
-
-  if (const auto verification = value.find("verification");
-      verification != value.end()) {
-    auto parsed_verification = parse_verification(*verification, path);
-    if (!parsed_verification) {
-      return std::unexpected(parsed_verification.error());
-    }
-    capability.verification = std::move(*parsed_verification);
-  }
-
-  if (const auto output_mapping = value.find("output_mapping");
-      output_mapping != value.end()) {
-    if (!output_mapping->is_object()) {
-      return std::unexpected(path + ".output_mapping must be an object");
-    }
-    for (const auto& [name, mapping_value] : output_mapping->items()) {
-      auto mapping = parse_output_mapping(name, mapping_value, path);
-      if (!mapping) {
-        return std::unexpected(mapping.error());
+    for (int output_index = 0; output_index < capability_proto.output_fields_size();
+         ++output_index) {
+      const auto& output_proto = capability_proto.output_fields(output_index);
+      output_field_mapping output;
+      output.name = output_proto.name();
+      auto source_value = convert_output_source(
+          output_proto.source(),
+          "project.capabilities[" + std::to_string(capability_index) +
+              "].output_fields[" + std::to_string(output_index) + "].source");
+      if (!source_value) {
+        return std::unexpected(source_value.error());
       }
-      capability.output_fields.push_back(std::move(*mapping));
+      output.source = *source_value;
+      output.transform = convert_output_transform(output_proto.transform());
+      if (!output_proto.json_pointer().empty()) {
+        output.json_pointer = output_proto.json_pointer();
+      }
+      if (!output_proto.input_name().empty()) {
+        output.input_name = output_proto.input_name();
+      }
+      if (output_proto.has_value()) {
+        auto value = convert_data_value(
+            output_proto.value(),
+            "project.capabilities[" + std::to_string(capability_index) +
+                "].output_fields[" + std::to_string(output_index) + "].value");
+        if (!value) {
+          return std::unexpected(value.error());
+        }
+        output.value = std::move(*value);
+      }
+      for (int normalize_index = 0; normalize_index < output_proto.normalize_size();
+           ++normalize_index) {
+        const auto& normalize_proto = output_proto.normalize(normalize_index);
+        auto mapped_value = convert_data_value(
+            normalize_proto.mapped_value(),
+            "project.capabilities[" + std::to_string(capability_index) +
+                "].output_fields[" + std::to_string(output_index) +
+                "].normalize[" + normalize_proto.raw_value() + "]");
+        if (!mapped_value) {
+          return std::unexpected(mapped_value.error());
+        }
+        const auto insert_result = output.normalize.emplace(
+            normalize_proto.raw_value(), std::move(*mapped_value));
+        if (!insert_result.second) {
+          return std::unexpected("project.capabilities[" +
+                                 std::to_string(capability_index) +
+                                 "].output_fields[" +
+                                 std::to_string(output_index) +
+                                 "].normalize[" + normalize_proto.raw_value() +
+                                 "] is duplicated");
+        }
+      }
+      if (output_proto.has_default_value()) {
+        auto default_value = convert_data_value(
+            output_proto.default_value(),
+            "project.capabilities[" + std::to_string(capability_index) +
+                "].output_fields[" + std::to_string(output_index) +
+                "].default_value");
+        if (!default_value) {
+          return std::unexpected(default_value.error());
+        }
+        output.default_value = std::move(*default_value);
+      }
+      output.required = output_proto.required();
+      capability.output_fields.push_back(std::move(output));
     }
+
+    project.capabilities.push_back(std::move(capability));
   }
 
-  return capability;
+  return project;
 }
 
 }  // namespace
@@ -653,87 +640,29 @@ void to_json(json& target, const validation_issue& issue) {
 
 std::expected<project_definition, std::string> load_project_file(
     const std::filesystem::path& path) {
-  std::ifstream stream(path);
-  if (!stream) {
-    return std::unexpected("unable to open project file: " + path.string());
+  auto text = read_file(path);
+  if (!text) {
+    return std::unexpected(text.error());
   }
 
-  std::stringstream buffer;
-  buffer << stream.rdbuf();
+  proto::ProjectDefinition project_proto;
+  google::protobuf::io::ArrayInputStream input(text->data(),
+                                               static_cast<int>(text->size()));
+  textproto_error_collector errors;
+  google::protobuf::TextFormat::Parser parser;
+  parser.AllowUnknownField(false);
+  parser.RecordErrorsTo(&errors);
 
-  json document;
-  try {
-    document = json::parse(buffer.str());
-  } catch (const std::exception& exception) {
-    return std::unexpected("project file is not valid JSON: " +
-                           std::string(exception.what()));
-  }
-
-  if (!document.is_object()) {
-    return std::unexpected("project root must be a JSON object");
-  }
-
-  project_definition project;
-  project.source_path = path;
-
-  auto name = require_string(document, "name", "project");
-  if (!name) {
-    return std::unexpected(name.error());
-  }
-  project.name = std::move(*name);
-
-  if (const auto description = document.find("description");
-      description != document.end()) {
-    if (!description->is_string()) {
-      return std::unexpected("project.description must be a string");
+  if (!parser.Parse(&input, &project_proto)) {
+    auto message = std::string("project file is not valid protobuf text format");
+    if (!errors.summary().empty()) {
+      message.append(": ");
+      message.append(errors.summary());
     }
-    project.description = description->get<std::string>();
+    return std::unexpected(std::move(message));
   }
 
-  if (const auto logging = document.find("logging"); logging != document.end()) {
-    if (!logging->is_object()) {
-      return std::unexpected("project.logging must be an object");
-    }
-    if (const auto sink = logging->find("sink"); sink != logging->end()) {
-      if (!sink->is_string()) {
-        return std::unexpected("project.logging.sink must be a string");
-      }
-      project.logging.sink = sink->get<std::string>();
-    }
-    if (const auto file_path = logging->find("file_path");
-        file_path != logging->end()) {
-      if (!file_path->is_string()) {
-        return std::unexpected("project.logging.file_path must be a string");
-      }
-      project.logging.file_path = std::filesystem::path(file_path->get<std::string>());
-    }
-  }
-
-  auto backends = require_array(document, "backends", "project");
-  if (!backends) {
-    return std::unexpected(backends.error());
-  }
-  for (std::size_t index = 0; index < (*backends)->size(); ++index) {
-    auto backend = parse_backend((**backends)[index], index);
-    if (!backend) {
-      return std::unexpected(backend.error());
-    }
-    project.backends.push_back(std::move(*backend));
-  }
-
-  auto capabilities = require_array(document, "capabilities", "project");
-  if (!capabilities) {
-    return std::unexpected(capabilities.error());
-  }
-  for (std::size_t index = 0; index < (*capabilities)->size(); ++index) {
-    auto capability = parse_capability((**capabilities)[index], index);
-    if (!capability) {
-      return std::unexpected(capability.error());
-    }
-    project.capabilities.push_back(std::move(*capability));
-  }
-
-  return project;
+  return convert_project(project_proto, path);
 }
 
 }  // namespace terva::core::project

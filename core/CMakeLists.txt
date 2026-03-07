@@ -27,4 +27,6 @@ target_link_libraries(terva_core
     dts::dts
   PRIVATE
     CURL::libcurl
+    terva::protobuf
+    terva::project_proto
 )

@@ -247,10 +247,13 @@ std::vector<validation_issue> validate_project(const project_definition& project
     }
 
     const auto property_names = schema_property_names(capability.input_schema);
+    std::set<std::string, std::less<>> output_names;
     for (const auto& output : capability.output_fields) {
       const auto path = capability_path + ".output_mapping[" + output.name + "]";
       if (output.name.empty()) {
         issues.push_back({path + ".name", "must not be empty"});
+      } else if (!output_names.insert(output.name).second) {
+        issues.push_back({path + ".name", "must be unique within a capability"});
       }
       if ((output.source == output_source::action ||
            output.source == output_source::verification) &&

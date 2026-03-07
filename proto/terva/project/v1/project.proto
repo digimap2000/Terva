@@ -1,0 +1,169 @@
+syntax = "proto3";
+
+package terva.project.v1;
+
+import "google/protobuf/struct.proto";
+
+enum BackendType {
+  BACKEND_TYPE_UNSPECIFIED = 0;
+  BACKEND_TYPE_HTTP_JSON = 1;
+  BACKEND_TYPE_LOCALHOST_HTTP_JSON = 2;
+}
+
+enum HttpMethod {
+  HTTP_METHOD_UNSPECIFIED = 0;
+  HTTP_METHOD_GET = 1;
+  HTTP_METHOD_POST = 2;
+  HTTP_METHOD_PUT = 3;
+}
+
+enum OutputSource {
+  OUTPUT_SOURCE_UNSPECIFIED = 0;
+  OUTPUT_SOURCE_INPUT = 1;
+  OUTPUT_SOURCE_ACTION = 2;
+  OUTPUT_SOURCE_VERIFICATION = 3;
+  OUTPUT_SOURCE_LITERAL = 4;
+}
+
+enum OutputTransform {
+  OUTPUT_TRANSFORM_UNSPECIFIED = 0;
+  OUTPUT_TRANSFORM_NONE = 1;
+  OUTPUT_TRANSFORM_MILLISECONDS_TO_SECONDS = 2;
+  OUTPUT_TRANSFORM_LAST_PATH_SEGMENT = 3;
+}
+
+message NamedString {
+  string name = 1;
+  string value = 2;
+}
+
+message DataField {
+  string name = 1;
+  DataValue value = 2;
+}
+
+message DataObject {
+  repeated DataField fields = 1;
+}
+
+message DataList {
+  repeated DataValue values = 1;
+}
+
+message DataValue {
+  oneof kind {
+    google.protobuf.NullValue null_value = 1;
+    string string_value = 2;
+    int64 int_value = 3;
+    double double_value = 4;
+    bool bool_value = 5;
+    DataObject object_value = 6;
+    DataList list_value = 7;
+  }
+}
+
+message LoggingOptions {
+  string sink = 1;
+  string file_path = 2;
+}
+
+message BackendDefinition {
+  string id = 1;
+  BackendType type = 2;
+  string base_url = 3;
+  repeated NamedString headers = 4;
+}
+
+message HttpActionDefinition {
+  string id = 1;
+  string description = 2;
+  string backend = 3;
+  HttpMethod method = 4;
+  string path = 5;
+  repeated NamedString query = 6;
+  repeated NamedString headers = 7;
+  DataValue body = 8;
+  repeated int32 success_statuses = 9;
+}
+
+message ValueExpectation {
+  string json_pointer = 1;
+  oneof matcher {
+    DataValue equals = 2;
+    string equals_input = 3;
+  }
+}
+
+message PreconditionDefinition {
+  string id = 1;
+  string description = 2;
+  string action = 3;
+  ValueExpectation expect = 4;
+}
+
+message SetupStepDefinition {
+  string id = 1;
+  string description = 2;
+  string for_precondition = 3;
+  string action = 4;
+}
+
+message VerificationDefinition {
+  string action = 1;
+  ValueExpectation expect = 2;
+  optional int32 attempts = 3;
+  optional int32 delay_ms = 4;
+  optional int32 success_delay_ms = 5;
+}
+
+message NormalizationRule {
+  string raw_value = 1;
+  DataValue mapped_value = 2;
+}
+
+message OutputFieldMapping {
+  string name = 1;
+  OutputSource source = 2;
+  OutputTransform transform = 3;
+  string json_pointer = 4;
+  string input_name = 5;
+  DataValue value = 6;
+  repeated NormalizationRule normalize = 7;
+  DataValue default_value = 8;
+  bool required = 9;
+}
+
+message InputPropertyDefinition {
+  string name = 1;
+  string type = 2;
+  DataValue minimum = 3;
+  DataValue maximum = 4;
+}
+
+message InputSchema {
+  string type = 1;
+  repeated InputPropertyDefinition properties = 2;
+  repeated string required = 3;
+  optional bool additional_properties = 4;
+}
+
+message CapabilityDefinition {
+  string id = 1;
+  string tool_name = 2;
+  string description = 3;
+  InputSchema input_schema = 4;
+  repeated HttpActionDefinition actions = 5;
+  repeated PreconditionDefinition preconditions = 6;
+  repeated SetupStepDefinition setup = 7;
+  string action = 8;
+  VerificationDefinition verification = 9;
+  repeated OutputFieldMapping output_fields = 10;
+}
+
+message ProjectDefinition {
+  string name = 1;
+  string description = 2;
+  LoggingOptions logging = 3;
+  repeated BackendDefinition backends = 4;
+  repeated CapabilityDefinition capabilities = 5;
+}

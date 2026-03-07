@@ -1,143 +1,148 @@
-{
-  "name": "Terva Demo Volume",
-  "description": "End-to-end demo project for the first Terva MCP runtime slice.",
-  "logging": {
-    "sink": "stderr"
-  },
-  "backends": [
-    {
-      "id": "demo_device",
-      "type": "localhost_http_json",
-      "base_url": "http://127.0.0.1:18080",
-      "headers": {
-        "X-Terva-Demo": "1"
+name: "Terva Demo Volume"
+description: "End-to-end demo project for the first Terva MCP runtime slice."
+
+logging {
+  sink: "stderr"
+}
+
+backends {
+  id: "demo_device"
+  type: BACKEND_TYPE_LOCALHOST_HTTP_JSON
+  base_url: "http://127.0.0.1:18080"
+  headers {
+    name: "X-Terva-Demo"
+    value: "1"
+  }
+}
+
+capabilities {
+  id: "set_volume"
+  tool_name: "audio.set_volume"
+  description: "Set the volume on the demo localhost audio device."
+  input_schema {
+    type: "object"
+    properties {
+      name: "level"
+      type: "integer"
+      minimum { int_value: 0 }
+      maximum { int_value: 100 }
+    }
+    required: "level"
+    additional_properties: false
+  }
+  actions {
+    id: "check_authenticated"
+    backend: "demo_device"
+    method: HTTP_METHOD_GET
+    path: "/api/session"
+    success_statuses: 200
+  }
+  actions {
+    id: "login"
+    backend: "demo_device"
+    method: HTTP_METHOD_POST
+    path: "/api/login"
+    body {
+      object_value {
       }
     }
-  ],
-  "capabilities": [
-    {
-      "id": "set_volume",
-      "tool_name": "audio.set_volume",
-      "description": "Set the volume on the demo localhost audio device.",
-      "input_schema": {
-        "type": "object",
-        "properties": {
-          "level": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 100
-          }
-        },
-        "required": ["level"],
-        "additionalProperties": false
-      },
-      "actions": [
-        {
-          "id": "check_authenticated",
-          "backend": "demo_device",
-          "method": "GET",
-          "path": "/api/session",
-          "success_statuses": [200]
-        },
-        {
-          "id": "login",
-          "backend": "demo_device",
-          "method": "POST",
-          "path": "/api/login",
-          "body": {},
-          "success_statuses": [200]
-        },
-        {
-          "id": "check_runlevel",
-          "backend": "demo_device",
-          "method": "GET",
-          "path": "/api/runlevel",
-          "success_statuses": [200]
-        },
-        {
-          "id": "set_runlevel",
-          "backend": "demo_device",
-          "method": "POST",
-          "path": "/api/runlevel",
-          "body": {
-            "value": 3
-          },
-          "success_statuses": [200]
-        },
-        {
-          "id": "set_volume",
-          "backend": "demo_device",
-          "method": "POST",
-          "path": "/api/audio/volume",
-          "body": {
-            "vol": "{{input.level}}"
-          },
-          "success_statuses": [200]
-        },
-        {
-          "id": "read_audio_state",
-          "backend": "demo_device",
-          "method": "GET",
-          "path": "/api/audio/state",
-          "success_statuses": [200]
-        }
-      ],
-      "preconditions": [
-        {
-          "id": "authenticated",
-          "description": "The demo backend must be authenticated first.",
-          "action": "check_authenticated",
-          "expect": {
-            "json_pointer": "/authenticated",
-            "equals": true
-          }
-        },
-        {
-          "id": "runlevel_three",
-          "description": "The demo backend must be placed into runlevel 3.",
-          "action": "check_runlevel",
-          "expect": {
-            "json_pointer": "/runlevel",
-            "equals": 3
-          }
-        }
-      ],
-      "setup": [
-        {
-          "id": "login_session",
-          "description": "Authenticate the demo backend session.",
-          "for_precondition": "authenticated",
-          "action": "login"
-        },
-        {
-          "id": "force_runlevel_three",
-          "description": "Raise the demo backend into runlevel 3.",
-          "for_precondition": "runlevel_three",
-          "action": "set_runlevel"
-        }
-      ],
-      "action": "set_volume",
-      "verification": {
-        "action": "read_audio_state",
-        "expect": {
-          "json_pointer": "/volume",
-          "equals_input": "level"
-        }
-      },
-      "output_mapping": {
-        "requested_level": {
-          "source": "input",
-          "input_name": "level"
-        },
-        "applied_level": {
-          "source": "verification",
-          "json_pointer": "/volume"
-        },
-        "action_status": {
-          "source": "action",
-          "json_pointer": "/status"
+    success_statuses: 200
+  }
+  actions {
+    id: "check_runlevel"
+    backend: "demo_device"
+    method: HTTP_METHOD_GET
+    path: "/api/runlevel"
+    success_statuses: 200
+  }
+  actions {
+    id: "set_runlevel"
+    backend: "demo_device"
+    method: HTTP_METHOD_POST
+    path: "/api/runlevel"
+    body {
+      object_value {
+        fields {
+          name: "value"
+          value { int_value: 3 }
         }
       }
     }
-  ]
+    success_statuses: 200
+  }
+  actions {
+    id: "set_volume"
+    backend: "demo_device"
+    method: HTTP_METHOD_POST
+    path: "/api/audio/volume"
+    body {
+      object_value {
+        fields {
+          name: "vol"
+          value { string_value: "{{input.level}}" }
+        }
+      }
+    }
+    success_statuses: 200
+  }
+  actions {
+    id: "read_audio_state"
+    backend: "demo_device"
+    method: HTTP_METHOD_GET
+    path: "/api/audio/state"
+    success_statuses: 200
+  }
+  preconditions {
+    id: "authenticated"
+    description: "The demo backend must be authenticated first."
+    action: "check_authenticated"
+    expect {
+      json_pointer: "/authenticated"
+      equals { bool_value: true }
+    }
+  }
+  preconditions {
+    id: "runlevel_three"
+    description: "The demo backend must be placed into runlevel 3."
+    action: "check_runlevel"
+    expect {
+      json_pointer: "/runlevel"
+      equals { int_value: 3 }
+    }
+  }
+  setup {
+    id: "login_session"
+    description: "Authenticate the demo backend session."
+    for_precondition: "authenticated"
+    action: "login"
+  }
+  setup {
+    id: "force_runlevel_three"
+    description: "Raise the demo backend into runlevel 3."
+    for_precondition: "runlevel_three"
+    action: "set_runlevel"
+  }
+  action: "set_volume"
+  verification {
+    action: "read_audio_state"
+    expect {
+      json_pointer: "/volume"
+      equals_input: "level"
+    }
+  }
+  output_fields {
+    name: "requested_level"
+    source: OUTPUT_SOURCE_INPUT
+    input_name: "level"
+  }
+  output_fields {
+    name: "applied_level"
+    source: OUTPUT_SOURCE_VERIFICATION
+    json_pointer: "/volume"
+  }
+  output_fields {
+    name: "action_status"
+    source: OUTPUT_SOURCE_ACTION
+    json_pointer: "/status"
+  }
 }

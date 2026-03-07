@@ -2,6 +2,8 @@
 
 Terva is a core-first MCP product scaffold.
 
+`.terva` project files are defined by protobuf schema and authored as protobuf text format for now. The schema lives at [project.proto](/Users/andys/Documents/ajs/Terva/proto/terva/project/v1/project.proto).
+
 The first runnable foundation is intentionally headless:
 
 - A shared C++ core owns the `.terva` project model, capability execution, backend integration, structured logs, and MCP runtime.

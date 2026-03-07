@@ -12,3 +12,8 @@ target/
 *.swp
 *.swo
 compile_commands.json
+apps/desktop/node_modules/
+apps/desktop/node_modules.copied/
+apps/desktop/dist/
+apps/desktop/*.tsbuildinfo
+apps/desktop/*.tsbuildinfo.copied
