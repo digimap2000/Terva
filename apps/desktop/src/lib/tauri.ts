@@ -142,35 +142,12 @@ export async function summarizeRecentProjects(
   return invoke<ProjectSummary[]>("summarize_recent_projects", { paths });
 }
 
-export async function closeActiveProject(): Promise<void> {
-  return invoke<void>("close_active_project");
-}
-
-export async function validateActiveProject(): Promise<ValidationResult> {
-  return invoke<ValidationResult>("validate_active_project");
-}
-
-export async function inspectActiveProject(): Promise<ProjectInspection> {
-  return invoke<ProjectInspection>("inspect_active_project");
-}
-
-export async function listActiveTools(): Promise<ToolList> {
-  return invoke<ToolList>("list_active_tools");
-}
-
 export async function startActiveRuntime(): Promise<RuntimeStatusPayload> {
   return invoke<RuntimeStatusPayload>("start_active_runtime");
 }
 
 export async function stopActiveRuntime(): Promise<RuntimeStatusPayload> {
   return invoke<RuntimeStatusPayload>("stop_active_runtime");
-}
-
-export async function invokeActiveTool(
-  toolName: string,
-  inputJson: string,
-): Promise<unknown> {
-  return invoke("invoke_active_tool", { toolName, inputJson });
 }
 
 export async function drainCoreEvents(): Promise<EventBatch> {

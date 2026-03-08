@@ -325,10 +325,10 @@ std::expected<json, std::string> engine::open_document(
   if (!contents) {
     return std::unexpected(contents.error());
   }
-  return load_document_contents(path, std::move(*contents));
+  return load_document(path, std::move(*contents));
 }
 
-std::expected<json, std::string> engine::load_document_contents(
+std::expected<json, std::string> engine::load_document(
     const std::filesystem::path& source_path,
     std::string contents) {
   if (!impl_) {
@@ -350,15 +350,6 @@ std::expected<json, std::string> engine::load_document_contents(
           {"validation_ok", impl_->document->validation_issues.empty()},
       });
   return document_payload(*impl_->document);
-}
-
-std::expected<json, std::string> engine::update_document_contents(
-    std::string contents) {
-  if (!impl_ || !impl_->document.has_value()) {
-    return std::unexpected("no active document is loaded");
-  }
-
-  return load_document_contents(impl_->document->source_path, std::move(contents));
 }
 
 std::expected<json, std::string> engine::update_project_metadata(
@@ -419,18 +410,7 @@ std::expected<json, std::string> engine::update_project_metadata(
     return std::unexpected(written.error());
   }
 
-  return load_document_contents(impl_->document->source_path, std::move(*rendered));
-}
-
-std::expected<json, std::string> engine::close_document() {
-  if (!impl_) {
-    return std::unexpected("engine is not initialized");
-  }
-
-  impl_->reset_runtime();
-  impl_->document.reset();
-  impl_->record_event("terva.document_closed");
-  return json{{"closed", true}};
+  return load_document(impl_->document->source_path, std::move(*rendered));
 }
 
 std::expected<json, std::string> engine::summarize_project_file(

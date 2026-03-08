@@ -1,13 +1,25 @@
 name: "Naim Audio"
 description: "New Terva project."
+project_type: "device_bridge"
+
+mcp_server {
+  name: "Naim Audio"
+  version: "1.0.0"
+  title: "Naim Audio"
+  description: "New Terva MCP server."
+  instructions: "Use the exposed tools and resources from this Terva project."
+}
+
 logging {
   sink: "stderr"
 }
+
 backends {
   id: "primary"
   type: BACKEND_TYPE_HTTP_JSON
   base_url: "http://127.0.0.1:8080"
 }
+
 capabilities {
   id: "ping_service"
   tool_name: "ping_service"
@@ -32,10 +44,4 @@ capabilities {
       string_value: "replace_me"
     }
   }
-}
-project_type: "device_bridge"
-mcp_server {
-  name: "Naim Audio"
-  version: "0.1.0"
-  description: "New Terva project."
 }

@@ -3,56 +3,53 @@
 ## Toolchains
 
 - CMake 3.24 or newer
-- A C++23-capable compiler
+- a C++23-capable compiler
 - Rust toolchain
-- Tauri host prerequisites only when working on `apps/desktop/`
+- Node.js for `apps/desktop/`
+- Tauri host prerequisites when building the desktop app
 - DTS installed at `/opt/dts`
 - libcurl available to CMake
 
 ## Common Commands
 
-### Configure and build
+### Configure and build the C++ targets
 
 ```sh
 cmake --preset dev
 cmake --build --preset dev
 ```
 
-### Validate and inspect a project
+### Validate, inspect, and call a project from the CLI host
 
 ```sh
-./build/dev/apps/server/terva-server validate examples/demo-volume.terva
-./build/dev/apps/server/terva-server inspect examples/demo-volume.terva
+./build/dev/apps/cli/terva-client validate examples/demo-volume.terva
+./build/dev/apps/cli/terva-client inspect examples/demo-volume.terva
+./build/dev/apps/cli/terva-client tools examples/demo-volume.terva
+./build/dev/apps/cli/terva-client call examples/demo-volume.terva audio.set_volume '{"level":42}'
 ```
 
-### Start the example localhost backend
+### Start the deterministic example backend
 
 ```sh
 ./build/dev/apps/example-backend/terva-example-backend
 ```
 
-### Discover tools and call one over the real MCP runtime path
+### Build the desktop app
 
 ```sh
-./build/dev/apps/cli/terva-client tools stdio:examples/demo-volume.terva
-./build/dev/apps/cli/terva-client call stdio:examples/demo-volume.terva audio.set_volume '{"level":42}'
+npm --prefix apps/desktop run build
+npm --prefix apps/desktop run tauri build
 ```
 
-### Run the MCP server directly for an external MCP host
+### Launch the desktop app with a project and server
 
 ```sh
-./build/dev/apps/server/terva-server run --stdio examples/demo-volume.terva
-./build/dev/apps/server/terva-server run --listen http://127.0.0.1:7777/mcp examples/demo-volume.terva
+npm --prefix apps/desktop run tauri dev -- -- --open streamer.terva --start-server
 ```
 
 ## Notes
 
-- `terva-client` supports both `stdio:<project-file>` and `http://127.0.0.1:7777/mcp` connection targets.
-- Structured logs are emitted as JSON lines on `stderr` by default.
-- The desktop/Tauri scaffold is intentionally not on the first runnable path.
-
-## Next Steps After v0
-
-- Add more project schema checks and automated tests around parser, validator, and executor behavior.
-- Decide the future Rust-to-C++ boundary for the desktop shell.
-- Add platform-specific packaging and installer workflows when the headless runtime stabilizes.
+- The desktop app links to the same core engine as the CLI.
+- The core-owned MCP server is exposed over localhost Streamable HTTP.
+- Structured runtime events are emitted by the core and drained by the desktop shell.
+- `.terva` files are currently authored as protobuf text format backed by the protobuf schema.

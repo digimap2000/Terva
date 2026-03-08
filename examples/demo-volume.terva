@@ -4,7 +4,7 @@ project_type: "device_bridge"
 
 mcp_server {
   name: "terva-demo-volume"
-  version: "0.1.0"
+  version: "1.0.0"
   title: "Terva Demo Volume"
   description: "Demo MCP server for the localhost audio volume example."
   instructions: "Use the exposed audio tool to exercise the demo backend end to end."

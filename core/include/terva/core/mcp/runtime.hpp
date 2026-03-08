@@ -35,9 +35,6 @@ class runtime final {
 
   [[nodiscard]] std::expected<started_http_server, std::string> start_http_server(
       const http_listen_options& options);
-  [[nodiscard]] std::expected<int, std::string> run_stdio();
- [[nodiscard]] std::expected<int, std::string> run_http(
-      const http_listen_options& options);
 
  private:
   struct shared_state;

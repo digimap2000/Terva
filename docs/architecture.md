@@ -2,7 +2,14 @@
 
 ## Intent
 
-Terva is organized around a project-driven C++ core. The `.terva` file is the source of truth, and the MCP server is treated as a first-class product artifact rather than a thin wrapper.
+Terva v1 is a linked-core product.
+
+The canonical engine lives in C++. Both shipped hosts call that same engine directly:
+
+- `apps/cli/` is the thin headless host.
+- `apps/desktop/` is the thin Tauri desktop host.
+
+There is no standalone daemon, no stdio control plane, and no separate RPC/service layer in v1.
 
 ## Layers
 
@@ -10,50 +17,58 @@ Terva is organized around a project-driven C++ core. The `.terva` file is the so
 
 The C++ core owns:
 
-- project model types
-- project parsing and validation
-- capability definitions
-- explicit precondition, setup, action, and verification execution
-- backend adapter interfaces
-- localhost HTTP JSON backend integration
-- structured JSONL logging
-- MCP server registration from project data
+- `.terva` project parsing and rendering
+- validation rules
+- project inspection payloads
+- capability execution
+- backend integration
+- structured event logging
+- MCP Streamable HTTP server startup and shutdown
 
-### `apps/server/`
-
-`terva-server` is the standalone MCP runtime. It loads a project, validates it, builds tool definitions from capability data, and serves them over stdio or localhost Streamable HTTP using DTS MCP transports.
+The desktop and CLI are consumers of that engine, not alternate implementations of product logic.
 
 ### `apps/cli/`
 
-`terva-client` is the headless verification loop. It connects either via `stdio:<project-file>`, which spawns `terva-server run --stdio <project-file>`, or directly to a localhost HTTP endpoint such as `http://127.0.0.1:7777/mcp`.
+`terva-client` is the first-class headless host over the engine.
 
-### `apps/example-backend/`
-
-The example backend is a small localhost HTTP JSON fixture used to prove end-to-end project execution. It is not part of the core product shape, but it gives the repo a deterministic test target for the initial runtime.
+It opens a `.terva` file directly, validates and inspects it, lists tools, and invokes capabilities through the same in-process core used by the desktop app.
 
 ### `apps/desktop/`
 
-The desktop application remains deferred. Tauri is present as a future operator-facing shell, but it is intentionally outside the v0 runtime path.
+The desktop app is a Tauri shell linked to the C++ engine through Rust `cxx` bridge code.
 
-## Integration Direction
+The frontend does not scrape or reinterpret `.terva` files itself. It sends coarse-grained requests into the native layer and renders the canonical payloads returned by the core.
 
-The current foundation keeps the Rust desktop shell separate from the core on purpose. A later iteration can choose the bridge mechanism based on real requirements:
+### `apps/example-backend/`
 
-- C ABI boundary for broad portability.
-- `cxx` for tighter Rust/C++ integration.
-- Process boundary via the existing MCP runtime or CLI where it helps.
+The example backend is a deterministic local HTTP fixture used for development and verification. It is not part of the shipped product runtime, but it remains useful as a stable test target.
+
+## Integration Boundary
+
+The Rust/C++ boundary is intentionally narrow:
+
+- open document
+- summarize document
+- update top-level project metadata
+- start server
+- stop server
+- drain core events
+
+The bridge is private product infrastructure, not a public SDK.
+
+## Runtime Model
+
+The core can load a `.terva` document and start an MCP server over Streamable HTTP on localhost.
+
+The desktop app exposes that capability as a host control surface, but the server behavior itself is still owned by the C++ core.
 
 ## Capability Model
 
-A capability is modeled explicitly as:
+A capability is modeled explicitly in project data rather than hidden behind arbitrary code:
 
 - preconditions
 - setup steps
 - main action
 - verification
 
-This remains visible in the project file and the runtime result payload. The v0 system does not use generic execute blobs or hidden workflow logic.
-
-## AI Collaboration
-
-Repository-specific AI context should live in `.ai/` instead of being scattered through ad hoc notes. Primers belong close to subsystem intent, while reusable instructions belong in skills and workflows.
+That structure remains visible in the project format and in runtime results.

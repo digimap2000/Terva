@@ -80,7 +80,7 @@ const fieldHelp: Record<keyof ProjectFormState, FieldHelp> = {
     summary: "Mandatory MCP server version surfaced in serverInfo.version.",
     explanation:
       "Version the server surface deliberately. This is what clients will see during initialize and should track the server behavior they are connecting to.",
-    example: "0.1.0",
+    example: "1.0.0",
   },
   mcp_title: {
     label: "Server Title",
@@ -123,7 +123,7 @@ function toFormState(project: ProjectDocument): ProjectFormState {
     project_description: project.description ?? "",
     project_type: project.project_type || "device_bridge",
     mcp_name: project.mcp_server.name || project.display_name,
-    mcp_version: project.mcp_server.version || "0.1.0",
+    mcp_version: project.mcp_server.version || "1.0.0",
     mcp_title: project.mcp_server.title || "",
     mcp_description: project.mcp_server.description || "",
     mcp_website_url: project.mcp_server.website_url || "",
@@ -438,7 +438,7 @@ export function Project({ project, loading, onSaveProjectMetadata }: ProjectProp
                             onChange={(event) =>
                               updateField("mcp_version", event.target.value)
                             }
-                            placeholder="0.1.0"
+                            placeholder="1.0.0"
                           />
                         </Field>
 

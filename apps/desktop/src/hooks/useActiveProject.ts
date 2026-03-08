@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import {
-  closeActiveProject,
   createProjectDocument,
   drainCoreEvents,
   openProjectDocument,
@@ -293,16 +292,6 @@ export function useActiveProject() {
     }
   }
 
-  function closeProject() {
-    void closeActiveProject();
-    setProject(null);
-    setError(null);
-    setRuntimeState("stopped");
-    setRuntimeError(null);
-    setServerUrl(null);
-    setLogs([]);
-  }
-
   async function startServer() {
     if (!project) {
       return false;
@@ -400,7 +389,6 @@ export function useActiveProject() {
     openProject,
     createProject,
     openRecentProject,
-    closeProject,
     startServer,
     stopServer,
     saveProjectMetadata,

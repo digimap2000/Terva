@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.24)
 
 project(
   Terva
-  VERSION 0.1.0
+  VERSION 1.0.0
   DESCRIPTION "Core-first MCP runtime with a shared C++ core, CLI, and Tauri shell"
   LANGUAGES CXX
 )
@@ -30,7 +30,6 @@ if(APPLE AND NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET)
   set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS deployment target")
 endif()
 
-option(TERVA_BUILD_SERVER "Build the deprecated Terva MCP server" OFF)
 option(TERVA_BUILD_CLI "Build the Terva CLI host" ON)
 option(TERVA_BUILD_EXAMPLES "Build example backends and demo assets" ON)
 
@@ -50,10 +49,6 @@ endif()
 
 add_subdirectory(proto)
 add_subdirectory(core)
-
-if(TERVA_BUILD_SERVER)
-  add_subdirectory(apps/server)
-endif()
 
 if(TERVA_BUILD_CLI)
   add_subdirectory(apps/cli)

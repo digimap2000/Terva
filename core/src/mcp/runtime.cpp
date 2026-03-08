@@ -4,7 +4,6 @@
 
 #include <dts/mcp/http_transport.hpp>
 #include <dts/mcp/server_options.hpp>
-#include <dts/mcp/stdio_transport.hpp>
 
 #include <chrono>
 
@@ -110,57 +109,6 @@ std::expected<dts::mcp::server, std::string> runtime::make_server() const {
   }
 
   return server;
-}
-
-std::expected<int, std::string> runtime::run_stdio() {
-  auto server = make_server();
-  if (!server) {
-    return std::unexpected(server.error());
-  }
-
-  if (const auto added = server->add_transport(
-          std::make_unique<dts::mcp::stdio_transport>()); !added) {
-    return std::unexpected(added.error());
-  }
-
-  if (const auto started = server->start(); !started) {
-    return std::unexpected(started.error());
-  }
-
-  if (state_ && state_->logger) {
-    state_->logger->emit("terva.server_started",
-                         json{{"project_name", state_->project.name},
-                              {"transport_mode", "stdio"},
-                              {"tool_count", state_->project.capabilities.size()},
-                              {"source_path", state_->project.source_path.string()}});
-  }
-
-  server->wait();
-
-  if (state_ && state_->logger) {
-    state_->logger->emit("terva.server_stopped",
-                         json{{"project_name", state_->project.name},
-                              {"transport_mode", "stdio"}});
-  }
-  return 0;
-}
-
-std::expected<int, std::string> runtime::run_http(
-    const http_listen_options& options) {
-  auto started_server = start_http_server(options);
-  if (!started_server) {
-    return std::unexpected(started_server.error());
-  }
-
-  started_server->server.wait();
-
-  if (state_ && state_->logger) {
-    state_->logger->emit("terva.server_stopped",
-                         json{{"project_name", state_->project.name},
-                              {"transport_mode", "http"},
-                              {"listen_url", started_server->listen_url}});
-  }
-  return 0;
 }
 
 }  // namespace terva::core::mcp

@@ -13,7 +13,6 @@
       "binaryDir": "${sourceDir}/build/dev",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "TERVA_BUILD_SERVER": "OFF",
         "TERVA_BUILD_EXAMPLES": "OFF"
       }
     }

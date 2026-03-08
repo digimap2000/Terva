@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::UNIX_EPOCH;
@@ -36,13 +35,6 @@ impl CoreBridge {
         decode_payload::<ProjectDocument>(&raw)
     }
 
-    pub fn close_document(&self) -> Result<(), TervaError> {
-        let mut core = self.lock()?;
-        let raw = core.pin_mut().close_document();
-        let _: serde_json::Value = decode_payload(&raw)?;
-        Ok(())
-    }
-
     pub fn summarize_document(&self, path: &Path) -> Result<ProjectSummary, TervaError> {
         let core = self.lock()?;
         let rendered_path = path.display().to_string();
@@ -56,24 +48,6 @@ impl CoreBridge {
         Ok(summary)
     }
 
-    pub fn validate_active_document(&self) -> Result<ValidationResult, TervaError> {
-        let core = self.lock()?;
-        let raw = core.validate_active_document();
-        decode_payload(&raw)
-    }
-
-    pub fn inspect_active_document(&self) -> Result<ProjectInspection, TervaError> {
-        let core = self.lock()?;
-        let raw = core.inspect_active_document();
-        decode_payload(&raw)
-    }
-
-    pub fn list_tools(&self) -> Result<ToolList, TervaError> {
-        let mut core = self.lock()?;
-        let raw = core.pin_mut().list_tools();
-        decode_payload(&raw)
-    }
-
     pub fn start_runtime(&self) -> Result<RuntimeStatusPayload, TervaError> {
         let mut core = self.lock()?;
         let raw = core.pin_mut().start_runtime();
@@ -83,16 +57,6 @@ impl CoreBridge {
     pub fn stop_runtime(&self) -> Result<RuntimeStatusPayload, TervaError> {
         let mut core = self.lock()?;
         let raw = core.pin_mut().stop_runtime();
-        decode_payload(&raw)
-    }
-
-    pub fn invoke_tool(
-        &self,
-        tool_name: &str,
-        input_json: &str,
-    ) -> Result<serde_json::Value, TervaError> {
-        let mut core = self.lock()?;
-        let raw = core.pin_mut().invoke_tool(tool_name, input_json);
         decode_payload(&raw)
     }
 
@@ -138,57 +102,6 @@ fn decode_payload<T: DeserializeOwned>(raw: &str) -> Result<T, TervaError> {
         .ok_or_else(|| TervaError::Project("Core response was missing a payload".to_string()))
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ValidationIssue {
-    pub path: String,
-    pub message: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ValidationResult {
-    pub ok: bool,
-    pub issues: Vec<ValidationIssue>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InspectionAction {
-    pub id: String,
-    pub description: String,
-    pub backend_id: String,
-    pub method: String,
-    pub path: String,
-    pub query: BTreeMap<String, String>,
-    pub success_statuses: Vec<i32>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InspectionVerification {
-    pub action_id: String,
-    pub attempts: i32,
-    pub delay_ms: i32,
-    pub success_delay_ms: i32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InspectionBackend {
-    pub id: String,
-    #[serde(rename = "type")]
-    pub backend_type: String,
-    pub base_url: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InspectionCapability {
-    pub id: String,
-    pub tool_name: String,
-    pub description: String,
-    pub input_schema: serde_json::Value,
-    pub input_schema_keys: Vec<String>,
-    pub main_action_id: String,
-    pub actions: Vec<InspectionAction>,
-    pub verification: Option<InspectionVerification>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct McpServerMetadata {
     pub name: String,
@@ -197,19 +110,6 @@ pub struct McpServerMetadata {
     pub description: String,
     pub website_url: String,
     pub instructions: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProjectInspection {
-    pub name: String,
-    pub description: String,
-    #[serde(default)]
-    pub project_type: String,
-    #[serde(default)]
-    pub mcp_server: McpServerMetadata,
-    pub source_path: String,
-    pub backends: Vec<InspectionBackend>,
-    pub capabilities: Vec<InspectionCapability>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -226,8 +126,8 @@ pub struct ProjectDocument {
     pub parse_error: String,
     pub backend_count: usize,
     pub capability_count: usize,
-    pub validation: ValidationResult,
-    pub inspection: Option<ProjectInspection>,
+    pub validation: serde_json::Value,
+    pub inspection: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -241,21 +141,8 @@ pub struct ProjectSummary {
     pub parse_error: String,
     pub backend_count: usize,
     pub capability_count: usize,
-    pub validation: ValidationResult,
+    pub validation: serde_json::Value,
     pub modified_at_ms: Option<u64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolSummary {
-    pub capability_id: String,
-    pub tool_name: String,
-    pub description: String,
-    pub input_schema: serde_json::Value,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolList {
-    pub tools: Vec<ToolSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -343,7 +230,7 @@ project_type: "device_bridge"
 
 mcp_server {{
   name: "{project_name}"
-  version: "0.1.0"
+  version: "1.0.0"
   title: "{project_name}"
   description: "New Terva MCP server."
   instructions: "Use the exposed tools and resources from this Terva project."

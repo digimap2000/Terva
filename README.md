@@ -1,4 +1,4 @@
-# Terva
+# Terva v1.0.0
 
 Terva is a core-first product scaffold with a single canonical in-process engine.
 
@@ -9,7 +9,7 @@ The current v1 shape is intentionally simple:
 - A shared C++ core owns the `.terva` project model, validation, capability execution, backend integration, structured logs, and runtime behavior.
 - `terva-client` is a thin direct host over that same C++ engine.
 - The Tauri desktop app links to the C++ core in process through Rust `cxx` bridge code.
-- There is no daemon, RPC layer, stdio control plane, or localhost control service in v1.
+- There is no daemon, RPC layer, or stdio control plane in v1.
 
 The repository is also structured for AI-assisted development from the start, with dedicated space for primers, skills, prompts, and workflow notes.
 
@@ -51,7 +51,15 @@ cmake --build --preset dev
 npm --prefix apps/desktop run tauri build
 ```
 
-The desktop app links to the same engine in process through the Rust `cxx` bridge. The desktop shell does not scrape `.terva` files itself anymore; open/summarize/inspect data comes from the shared core.
+The desktop app links to the same engine in process through the Rust `cxx` bridge. The desktop shell does not scrape `.terva` files itself anymore; document state comes from the shared core.
+
+### Launch the desktop app and start the MCP server
+
+```sh
+npm --prefix apps/desktop run tauri dev -- -- --open streamer.terva --start-server
+```
+
+The linked core will load the project and start the MCP server over localhost Streamable HTTP.
 
 ## Streamer Example
 

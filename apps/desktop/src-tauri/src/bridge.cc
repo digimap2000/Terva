@@ -33,17 +33,6 @@ rust::String DesktopCore::open_document(const rust::Str path) {
   return wrap_result(engine_.open_document(std::filesystem::path(std::string(path))));
 }
 
-rust::String DesktopCore::load_document_contents(
-    const rust::Str source_path,
-    const rust::Str contents) {
-  return wrap_result(engine_.load_document_contents(
-      std::filesystem::path(std::string(source_path)), std::string(contents)));
-}
-
-rust::String DesktopCore::update_document_contents(const rust::Str contents) {
-  return wrap_result(engine_.update_document_contents(std::string(contents)));
-}
-
 rust::String DesktopCore::update_project_metadata(const rust::Str metadata_json) {
   try {
     const auto metadata = terva::core::json::parse(std::string(metadata_json));
@@ -53,21 +42,9 @@ rust::String DesktopCore::update_project_metadata(const rust::Str metadata_json)
   }
 }
 
-rust::String DesktopCore::close_document() {
-  return wrap_result(engine_.close_document());
-}
-
 rust::String DesktopCore::summarize_document(const rust::Str path) const {
   return wrap_result(
       engine_.summarize_project_file(std::filesystem::path(std::string(path))));
-}
-
-rust::String DesktopCore::validate_active_document() const {
-  return wrap_result(engine_.validate_active_document());
-}
-
-rust::String DesktopCore::inspect_active_document() const {
-  return wrap_result(engine_.inspect_active_document());
 }
 
 rust::String DesktopCore::start_runtime() {
@@ -76,22 +53,6 @@ rust::String DesktopCore::start_runtime() {
 
 rust::String DesktopCore::stop_runtime() {
   return wrap_result(engine_.stop_server());
-}
-
-rust::String DesktopCore::list_tools() {
-  return wrap_result(engine_.list_tools());
-}
-
-rust::String DesktopCore::invoke_tool(
-    const rust::Str tool_name,
-    const rust::Str input_json) {
-  try {
-    const auto rendered_tool_name = std::string(tool_name);
-    const auto input = terva::core::json::parse(std::string(input_json));
-    return wrap_result(engine_.invoke_tool(rendered_tool_name, input));
-  } catch (const std::exception& exception) {
-    return envelope_error(std::string("invalid JSON input: ") + exception.what());
-  }
 }
 
 rust::String DesktopCore::drain_events() {

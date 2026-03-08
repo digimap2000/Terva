@@ -4,7 +4,7 @@ project_type: "device_bridge"
 
 mcp_server {
   name: "streamer-power-control"
-  version: "0.1.0"
+  version: "1.0.0"
   title: "Streamer Power Control"
   description: "MCP server for power and playback control of the real audio streamer."
   instructions: "Use the explicit power and playback session tools exposed by this Terva project."

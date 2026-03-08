@@ -14,19 +14,12 @@ class DesktopCore final {
   DesktopCore& operator=(const DesktopCore&) = delete;
 
   rust::String open_document(rust::Str path);
-  rust::String load_document_contents(rust::Str source_path, rust::Str contents);
-  rust::String update_document_contents(rust::Str contents);
   rust::String update_project_metadata(rust::Str metadata_json);
-  rust::String close_document();
 
   rust::String summarize_document(rust::Str path) const;
-  rust::String validate_active_document() const;
-  rust::String inspect_active_document() const;
 
   rust::String start_runtime();
   rust::String stop_runtime();
-  rust::String list_tools();
-  rust::String invoke_tool(rust::Str tool_name, rust::Str input_json);
   rust::String drain_events();
 
  private:

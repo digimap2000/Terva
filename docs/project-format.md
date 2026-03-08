@@ -107,7 +107,7 @@ Query and header entries are repeated `name` / `value` pairs.
 
 ## Values
 
-Prototext uses explicit typed value messages where the old JSON format used inline literals.
+Prototext uses explicit typed value messages rather than inline untyped literals.
 
 Supported value forms:
 
@@ -161,7 +161,7 @@ Verification may also define:
 
 ## Output Fields
 
-Output fields replace the old JSON `output_mapping` object with repeated named entries.
+Output fields are represented as repeated named entries.
 
 Each entry supports:
 

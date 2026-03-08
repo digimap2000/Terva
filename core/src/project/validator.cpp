@@ -104,7 +104,7 @@ std::vector<validation_issue> validate_project(const project_definition& project
       if (type == capability.input_schema.end() || !type->is_string() ||
           *type != "object") {
         issues.push_back({capability_path + ".input_schema.type",
-                          "must be \"object\" for v0"});
+                          "must be \"object\""});
       }
       const auto properties = capability.input_schema.find("properties");
       if (properties == capability.input_schema.end() || !properties->is_object()) {
@@ -228,7 +228,7 @@ std::vector<validation_issue> validate_project(const project_definition& project
       }
       if (!preconditions_with_setup.insert(setup_step.for_precondition).second) {
         issues.push_back({path + ".for_precondition",
-                          "must not have multiple setup steps in v0"});
+                          "must not have multiple setup steps"});
       }
     }
 

@@ -1,5 +1,14 @@
 name: "Roby Robot"
 description: "New Terva project."
+project_type: "device_bridge"
+
+mcp_server {
+  name: "Roby Robot"
+  version: "1.0.0"
+  title: "Roby Robot"
+  description: "New Terva MCP server."
+  instructions: "Use the exposed tools and resources from this Terva project."
+}
 
 logging {
   sink: "stderr"
@@ -30,6 +39,7 @@ capabilities {
   output_fields {
     name: "status"
     source: OUTPUT_SOURCE_LITERAL
+    transform: OUTPUT_TRANSFORM_NONE
     value { string_value: "replace_me" }
   }
 }

@@ -22,14 +22,8 @@ class engine final {
 
   [[nodiscard]] std::expected<json, std::string> open_document(
       const std::filesystem::path& path);
-  [[nodiscard]] std::expected<json, std::string> load_document_contents(
-      const std::filesystem::path& source_path,
-      std::string contents);
-  [[nodiscard]] std::expected<json, std::string> update_document_contents(
-      std::string contents);
   [[nodiscard]] std::expected<json, std::string> update_project_metadata(
       const json& metadata);
-  [[nodiscard]] std::expected<json, std::string> close_document();
 
   [[nodiscard]] std::expected<json, std::string> summarize_project_file(
       const std::filesystem::path& path) const;
@@ -43,10 +37,13 @@ class engine final {
       std::string_view tool_name,
       const json& input);
 
-  [[nodiscard]] json drain_events();
+ [[nodiscard]] json drain_events();
 
  private:
   struct impl;
+  [[nodiscard]] std::expected<json, std::string> load_document(
+      const std::filesystem::path& source_path,
+      std::string contents);
   std::unique_ptr<impl> impl_;
 };
 

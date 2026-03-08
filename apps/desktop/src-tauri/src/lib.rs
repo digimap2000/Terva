@@ -4,10 +4,9 @@ mod project;
 
 use error::TervaError;
 use project::{
-    CoreBridge, EventBatch, ProjectDocument, ProjectInspection, ProjectSummary,
-    ProjectMetadataUpdate, RuntimeStatusPayload, ToolList, ValidationResult,
+    CoreBridge, EventBatch, ProjectDocument, ProjectSummary, ProjectMetadataUpdate,
+    RuntimeStatusPayload,
 };
-use serde_json::Value;
 use tauri::State;
 
 fn apply_launch_arguments(bridge: &CoreBridge) {
@@ -74,26 +73,6 @@ fn summarize_recent_projects(
 }
 
 #[tauri::command]
-fn close_active_project(bridge: State<'_, CoreBridge>) -> Result<(), TervaError> {
-    bridge.inner().close_document()
-}
-
-#[tauri::command]
-fn validate_active_project(bridge: State<'_, CoreBridge>) -> Result<ValidationResult, TervaError> {
-    bridge.inner().validate_active_document()
-}
-
-#[tauri::command]
-fn inspect_active_project(bridge: State<'_, CoreBridge>) -> Result<ProjectInspection, TervaError> {
-    bridge.inner().inspect_active_document()
-}
-
-#[tauri::command]
-fn list_active_tools(bridge: State<'_, CoreBridge>) -> Result<ToolList, TervaError> {
-    bridge.inner().list_tools()
-}
-
-#[tauri::command]
 fn start_active_runtime(
     bridge: State<'_, CoreBridge>,
 ) -> Result<RuntimeStatusPayload, TervaError> {
@@ -105,15 +84,6 @@ fn stop_active_runtime(
     bridge: State<'_, CoreBridge>,
 ) -> Result<RuntimeStatusPayload, TervaError> {
     bridge.inner().stop_runtime()
-}
-
-#[tauri::command]
-fn invoke_active_tool(
-    bridge: State<'_, CoreBridge>,
-    tool_name: String,
-    input_json: String,
-) -> Result<Value, TervaError> {
-    bridge.inner().invoke_tool(&tool_name, &input_json)
 }
 
 #[tauri::command]
@@ -138,18 +108,13 @@ pub fn run() {
         .manage(bridge)
         .invoke_handler(tauri::generate_handler![
             create_project_document,
-            close_active_project,
             drain_core_events,
-            inspect_active_project,
-            invoke_active_tool,
-            list_active_tools,
             open_project_document,
             open_project_document_at_path,
             start_active_runtime,
             stop_active_runtime,
             summarize_recent_projects,
-            update_project_metadata,
-            validate_active_project
+            update_project_metadata
         ])
         .run(tauri::generate_context!())
         .expect("error while running Terva");
