@@ -82,8 +82,8 @@ std::expected<dts::mcp::server, std::string> runtime::make_server() const {
   }
 
   dts::mcp::server_options options;
-  options.server_name = state->project.name;
-  options.server_version = std::string(terva::core::version());
+  options.server_name = state->project.mcp_server.name;
+  options.server_version = state->project.mcp_server.version;
   options.log_tag = "terva-mcp";
   options.tool_result_mode = dts::mcp::result_mode::raw_json;
 

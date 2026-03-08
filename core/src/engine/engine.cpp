@@ -45,6 +45,20 @@ struct managed_http_server final {
   return buffer.str();
 }
 
+[[nodiscard]] std::expected<void, std::string> write_file(
+    const std::filesystem::path& path,
+    const std::string& contents) {
+  std::ofstream stream(path, std::ios::trunc);
+  if (!stream) {
+    return std::unexpected("unable to write project file: " + path.string());
+  }
+  stream << contents;
+  if (!stream.good()) {
+    return std::unexpected("failed to write complete project file: " + path.string());
+  }
+  return {};
+}
+
 [[nodiscard]] std::string file_name_for_path(const std::filesystem::path& path) {
   return path.filename().empty() ? path.string() : path.filename().string();
 }
@@ -157,9 +171,20 @@ struct managed_http_server final {
     capabilities.push_back(std::move(capability_payload));
   }
 
+  json mcp_server{
+      {"name", project.mcp_server.name},
+      {"version", project.mcp_server.version},
+      {"title", project.mcp_server.title.value_or("")},
+      {"description", project.mcp_server.description.value_or("")},
+      {"website_url", project.mcp_server.website_url.value_or("")},
+      {"instructions", project.mcp_server.instructions.value_or("")},
+  };
+
   return json{
       {"name", project.name},
       {"description", project.description.value_or("")},
+      {"project_type", project.project_type.value_or("")},
+      {"mcp_server", std::move(mcp_server)},
       {"source_path", project.source_path.string()},
       {"backends", std::move(backends)},
       {"capabilities", std::move(capabilities)},
@@ -182,11 +207,29 @@ struct managed_http_server final {
 
   if (document.project.has_value()) {
     payload["description"] = document.project->description.value_or("");
+    payload["project_type"] = document.project->project_type.value_or("");
+    payload["mcp_server"] = json{
+        {"name", document.project->mcp_server.name},
+        {"version", document.project->mcp_server.version},
+        {"title", document.project->mcp_server.title.value_or("")},
+        {"description", document.project->mcp_server.description.value_or("")},
+        {"website_url", document.project->mcp_server.website_url.value_or("")},
+        {"instructions", document.project->mcp_server.instructions.value_or("")},
+    };
     payload["backend_count"] = document.project->backends.size();
     payload["capability_count"] = document.project->capabilities.size();
     payload["inspection"] = inspection_payload(*document.project);
   } else {
     payload["description"] = "";
+    payload["project_type"] = "";
+    payload["mcp_server"] = json{
+        {"name", ""},
+        {"version", ""},
+        {"title", ""},
+        {"description", ""},
+        {"website_url", ""},
+        {"instructions", ""},
+    };
     payload["backend_count"] = 0;
     payload["capability_count"] = 0;
   }
@@ -316,6 +359,67 @@ std::expected<json, std::string> engine::update_document_contents(
   }
 
   return load_document_contents(impl_->document->source_path, std::move(contents));
+}
+
+std::expected<json, std::string> engine::update_project_metadata(
+    const json& metadata) {
+  if (!impl_ || !impl_->document.has_value()) {
+    return std::unexpected("no active document is loaded");
+  }
+  if (!impl_->document->project.has_value()) {
+    return std::unexpected(
+        impl_->document->parse_error.value_or("active document could not be parsed"));
+  }
+  if (!metadata.is_object()) {
+    return std::unexpected("project metadata update must be a JSON object");
+  }
+
+  auto updated = *impl_->document->project;
+
+  const auto assign_required_string = [&metadata](const char* key,
+                                                  std::string& target) {
+    if (const auto it = metadata.find(key);
+        it != metadata.end() && it->is_string()) {
+      target = it->get<std::string>();
+    }
+  };
+  const auto assign_optional_string =
+      [&metadata](const char* key, std::optional<std::string>& target) {
+        const auto it = metadata.find(key);
+        if (it == metadata.end() || it->is_null()) {
+          target.reset();
+          return;
+        }
+        if (it->is_string()) {
+          const auto value = it->get<std::string>();
+          if (value.empty()) {
+            target.reset();
+          } else {
+            target = value;
+          }
+        }
+      };
+
+  assign_required_string("project_name", updated.name);
+  assign_optional_string("project_description", updated.description);
+  assign_optional_string("project_type", updated.project_type);
+  assign_required_string("mcp_name", updated.mcp_server.name);
+  assign_required_string("mcp_version", updated.mcp_server.version);
+  assign_optional_string("mcp_title", updated.mcp_server.title);
+  assign_optional_string("mcp_description", updated.mcp_server.description);
+  assign_optional_string("mcp_website_url", updated.mcp_server.website_url);
+  assign_optional_string("mcp_instructions", updated.mcp_server.instructions);
+
+  auto rendered = project::render_project_text(updated);
+  if (!rendered) {
+    return std::unexpected(rendered.error());
+  }
+  if (const auto written = write_file(impl_->document->source_path, *rendered);
+      !written) {
+    return std::unexpected(written.error());
+  }
+
+  return load_document_contents(impl_->document->source_path, std::move(*rendered));
 }
 
 std::expected<json, std::string> engine::close_document() {

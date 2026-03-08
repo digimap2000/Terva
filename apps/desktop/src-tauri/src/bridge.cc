@@ -44,6 +44,15 @@ rust::String DesktopCore::update_document_contents(const rust::Str contents) {
   return wrap_result(engine_.update_document_contents(std::string(contents)));
 }
 
+rust::String DesktopCore::update_project_metadata(const rust::Str metadata_json) {
+  try {
+    const auto metadata = terva::core::json::parse(std::string(metadata_json));
+    return wrap_result(engine_.update_project_metadata(metadata));
+  } catch (const std::exception& exception) {
+    return envelope_error(std::string("invalid JSON metadata: ") + exception.what());
+  }
+}
+
 rust::String DesktopCore::close_document() {
   return wrap_result(engine_.close_document());
 }

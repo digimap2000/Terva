@@ -1,0 +1,41 @@
+name: "Naim Audio"
+description: "New Terva project."
+logging {
+  sink: "stderr"
+}
+backends {
+  id: "primary"
+  type: BACKEND_TYPE_HTTP_JSON
+  base_url: "http://127.0.0.1:8080"
+}
+capabilities {
+  id: "ping_service"
+  tool_name: "ping_service"
+  description: "Starter placeholder capability. Replace this with the first real operation for the project."
+  input_schema {
+    type: "object"
+    additional_properties: false
+  }
+  actions {
+    id: "ping_service"
+    backend: "primary"
+    method: HTTP_METHOD_GET
+    path: "/"
+    success_statuses: 200
+  }
+  action: "ping_service"
+  output_fields {
+    name: "status"
+    source: OUTPUT_SOURCE_LITERAL
+    transform: OUTPUT_TRANSFORM_NONE
+    value {
+      string_value: "replace_me"
+    }
+  }
+}
+project_type: "device_bridge"
+mcp_server {
+  name: "Naim Audio"
+  version: "0.1.0"
+  description: "New Terva project."
+}

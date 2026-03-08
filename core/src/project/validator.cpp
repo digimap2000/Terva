@@ -39,6 +39,21 @@ std::vector<validation_issue> validate_project(const project_definition& project
   if (project.name.empty()) {
     issues.push_back({"project.name", "must not be empty"});
   }
+  if (!project.project_type.has_value() || project.project_type->empty()) {
+    issues.push_back({"project.project_type", "must not be empty"});
+  }
+  if (project.mcp_server.name.empty()) {
+    issues.push_back({"project.mcp_server.name", "must not be empty"});
+  }
+  if (project.mcp_server.version.empty()) {
+    issues.push_back({"project.mcp_server.version", "must not be empty"});
+  }
+  if (project.mcp_server.website_url.has_value() &&
+      !project.mcp_server.website_url->empty() &&
+      !is_http_url(*project.mcp_server.website_url)) {
+    issues.push_back({"project.mcp_server.website_url",
+                      "must be an HTTP or HTTPS URL"});
+  }
   if (project.backends.empty()) {
     issues.push_back({"project.backends", "must contain at least one backend"});
   }

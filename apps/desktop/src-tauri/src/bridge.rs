@@ -16,6 +16,7 @@ pub mod ffi {
             contents: &str,
         ) -> String;
         fn update_document_contents(self: Pin<&mut DesktopCore>, contents: &str) -> String;
+        fn update_project_metadata(self: Pin<&mut DesktopCore>, metadata_json: &str) -> String;
         fn close_document(self: Pin<&mut DesktopCore>) -> String;
 
         fn summarize_document(self: &DesktopCore, path: &str) -> String;

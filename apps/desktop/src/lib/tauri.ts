@@ -44,9 +44,20 @@ export interface InspectionCapability {
   verification: InspectionVerification | null;
 }
 
+export interface McpServerMetadata {
+  name: string;
+  version: string;
+  title: string;
+  description: string;
+  website_url: string;
+  instructions: string;
+}
+
 export interface ProjectInspection {
   name: string;
   description: string;
+  project_type: string;
+  mcp_server: McpServerMetadata;
   source_path: string;
   backends: InspectionBackend[];
   capabilities: InspectionCapability[];
@@ -57,6 +68,8 @@ export interface ProjectDocument {
   file_name: string;
   display_name: string;
   description: string;
+  project_type: string;
+  mcp_server: McpServerMetadata;
   contents: string;
   parse_error: string;
   backend_count: number;
@@ -70,11 +83,24 @@ export interface ProjectSummary {
   file_name: string;
   display_name: string;
   description: string;
+  project_type: string;
   parse_error: string;
   backend_count: number;
   capability_count: number;
   validation: ValidationResult;
   modified_at_ms: number | null;
+}
+
+export interface ProjectMetadataUpdate {
+  project_name: string;
+  project_description: string;
+  project_type: string;
+  mcp_name: string;
+  mcp_version: string;
+  mcp_title: string;
+  mcp_description: string;
+  mcp_website_url: string;
+  mcp_instructions: string;
 }
 
 export interface ToolSummary {
@@ -149,4 +175,10 @@ export async function invokeActiveTool(
 
 export async function drainCoreEvents(): Promise<EventBatch> {
   return invoke<EventBatch>("drain_core_events");
+}
+
+export async function updateProjectMetadata(
+  update: ProjectMetadataUpdate,
+): Promise<ProjectDocument> {
+  return invoke<ProjectDocument>("update_project_metadata", { update });
 }

@@ -1,4 +1,5 @@
 #include "terva/core/project/parser.hpp"
+#include "terva/core/version.hpp"
 
 #if defined(__clang__) || defined(__GNUC__)
 #pragma GCC diagnostic push
@@ -14,6 +15,7 @@
 #include <google/protobuf/text_format.h>
 
 #include <fstream>
+#include <cstdint>
 #include <sstream>
 #include <string>
 
@@ -297,6 +299,35 @@ convert_named_string_list(
   if (!source.description().empty()) {
     project.description = source.description();
   }
+  if (!source.project_type().empty()) {
+    project.project_type = source.project_type();
+  }
+  project.mcp_server.name =
+      source.has_mcp_server() && !source.mcp_server().name().empty()
+          ? source.mcp_server().name()
+          : project.name;
+  project.mcp_server.version =
+      source.has_mcp_server() && !source.mcp_server().version().empty()
+          ? source.mcp_server().version()
+          : std::string(terva::core::version());
+  if (source.has_mcp_server()) {
+    if (!source.mcp_server().title().empty()) {
+      project.mcp_server.title = source.mcp_server().title();
+    }
+    if (!source.mcp_server().description().empty()) {
+      project.mcp_server.description = source.mcp_server().description();
+    } else if (project.description.has_value()) {
+      project.mcp_server.description = project.description;
+    }
+    if (!source.mcp_server().website_url().empty()) {
+      project.mcp_server.website_url = source.mcp_server().website_url();
+    }
+    if (!source.mcp_server().instructions().empty()) {
+      project.mcp_server.instructions = source.mcp_server().instructions();
+    }
+  } else if (project.description.has_value()) {
+    project.mcp_server.description = project.description;
+  }
   if (source.has_logging()) {
     if (!source.logging().sink().empty()) {
       project.logging.sink = source.logging().sink();
@@ -534,6 +565,277 @@ convert_named_string_list(
   return project;
 }
 
+void assign_named_strings(
+    google::protobuf::RepeatedPtrField<proto::NamedString>* target,
+    const std::map<std::string, std::string, std::less<>>& values) {
+  for (const auto& [name, value] : values) {
+    auto* item = target->Add();
+    item->set_name(name);
+    item->set_value(value);
+  }
+}
+
+void assign_data_value(proto::DataValue* target, const json& value) {
+  if (value.is_null()) {
+    target->set_null_value(google::protobuf::NULL_VALUE);
+    return;
+  }
+  if (value.is_string()) {
+    target->set_string_value(value.get<std::string>());
+    return;
+  }
+  if (value.is_boolean()) {
+    target->set_bool_value(value.get<bool>());
+    return;
+  }
+  if (value.is_number_integer()) {
+    target->set_int_value(value.get<std::int64_t>());
+    return;
+  }
+  if (value.is_number_unsigned()) {
+    target->set_int_value(static_cast<std::int64_t>(value.get<std::uint64_t>()));
+    return;
+  }
+  if (value.is_number_float()) {
+    target->set_double_value(value.get<double>());
+    return;
+  }
+  if (value.is_array()) {
+    auto* list = target->mutable_list_value();
+    for (const auto& item : value) {
+      assign_data_value(list->add_values(), item);
+    }
+    return;
+  }
+  if (value.is_object()) {
+    auto* object = target->mutable_object_value();
+    for (const auto& [name, item] : value.items()) {
+      auto* field = object->add_fields();
+      field->set_name(name);
+      assign_data_value(field->mutable_value(), item);
+    }
+  }
+}
+
+proto::BackendType to_proto_backend_type(const backend_type value) {
+  switch (value) {
+    case backend_type::http_json:
+      return proto::BACKEND_TYPE_HTTP_JSON;
+    case backend_type::localhost_http_json:
+      return proto::BACKEND_TYPE_LOCALHOST_HTTP_JSON;
+  }
+  return proto::BACKEND_TYPE_UNSPECIFIED;
+}
+
+proto::HttpMethod to_proto_http_method(const http_method value) {
+  switch (value) {
+    case http_method::get:
+      return proto::HTTP_METHOD_GET;
+    case http_method::post:
+      return proto::HTTP_METHOD_POST;
+    case http_method::put:
+      return proto::HTTP_METHOD_PUT;
+  }
+  return proto::HTTP_METHOD_UNSPECIFIED;
+}
+
+proto::OutputSource to_proto_output_source(const output_source value) {
+  switch (value) {
+    case output_source::input:
+      return proto::OUTPUT_SOURCE_INPUT;
+    case output_source::action:
+      return proto::OUTPUT_SOURCE_ACTION;
+    case output_source::verification:
+      return proto::OUTPUT_SOURCE_VERIFICATION;
+    case output_source::literal:
+      return proto::OUTPUT_SOURCE_LITERAL;
+  }
+  return proto::OUTPUT_SOURCE_UNSPECIFIED;
+}
+
+proto::OutputTransform to_proto_output_transform(const output_transform value) {
+  switch (value) {
+    case output_transform::none:
+      return proto::OUTPUT_TRANSFORM_NONE;
+    case output_transform::milliseconds_to_seconds:
+      return proto::OUTPUT_TRANSFORM_MILLISECONDS_TO_SECONDS;
+    case output_transform::last_path_segment:
+      return proto::OUTPUT_TRANSFORM_LAST_PATH_SEGMENT;
+  }
+  return proto::OUTPUT_TRANSFORM_UNSPECIFIED;
+}
+
+void assign_expectation(proto::ValueExpectation* target,
+                        const value_expectation& source) {
+  target->set_json_pointer(source.json_pointer);
+  if (source.equals.has_value()) {
+    assign_data_value(target->mutable_equals(), *source.equals);
+  }
+  if (source.equals_input.has_value()) {
+    target->set_equals_input(*source.equals_input);
+  }
+}
+
+proto::ProjectDefinition to_proto_project(const project_definition& project) {
+  proto::ProjectDefinition target;
+  target.set_name(project.name);
+  if (project.description.has_value()) {
+    target.set_description(*project.description);
+  }
+  if (project.project_type.has_value()) {
+    target.set_project_type(*project.project_type);
+  }
+  if (!project.logging.sink.empty()) {
+    target.mutable_logging()->set_sink(project.logging.sink);
+  }
+  if (project.logging.file_path.has_value()) {
+    target.mutable_logging()->set_file_path(project.logging.file_path->string());
+  }
+  target.mutable_mcp_server()->set_name(project.mcp_server.name);
+  target.mutable_mcp_server()->set_version(project.mcp_server.version);
+  if (project.mcp_server.title.has_value()) {
+    target.mutable_mcp_server()->set_title(*project.mcp_server.title);
+  }
+  if (project.mcp_server.description.has_value()) {
+    target.mutable_mcp_server()->set_description(*project.mcp_server.description);
+  }
+  if (project.mcp_server.website_url.has_value()) {
+    target.mutable_mcp_server()->set_website_url(*project.mcp_server.website_url);
+  }
+  if (project.mcp_server.instructions.has_value()) {
+    target.mutable_mcp_server()->set_instructions(*project.mcp_server.instructions);
+  }
+
+  for (const auto& backend : project.backends) {
+    auto* backend_proto = target.add_backends();
+    backend_proto->set_id(backend.id);
+    backend_proto->set_type(to_proto_backend_type(backend.type));
+    backend_proto->set_base_url(backend.base_url);
+    assign_named_strings(backend_proto->mutable_headers(), backend.headers);
+  }
+
+  for (const auto& capability : project.capabilities) {
+    auto* capability_proto = target.add_capabilities();
+    capability_proto->set_id(capability.id);
+    capability_proto->set_tool_name(capability.tool_name);
+    capability_proto->set_description(capability.description);
+
+    auto* input_schema = capability_proto->mutable_input_schema();
+    if (const auto type = capability.input_schema.find("type");
+        type != capability.input_schema.end() && type->is_string()) {
+      input_schema->set_type(type->get<std::string>());
+    }
+    if (const auto additional = capability.input_schema.find("additionalProperties");
+        additional != capability.input_schema.end() && additional->is_boolean()) {
+      input_schema->set_additional_properties(additional->get<bool>());
+    }
+    if (const auto properties = capability.input_schema.find("properties");
+        properties != capability.input_schema.end() && properties->is_object()) {
+      for (const auto& [name, schema] : properties->items()) {
+        auto* property = input_schema->add_properties();
+        property->set_name(name);
+        if (schema.is_object()) {
+          if (const auto type = schema.find("type");
+              type != schema.end() && type->is_string()) {
+            property->set_type(type->get<std::string>());
+          }
+          if (const auto minimum = schema.find("minimum");
+              minimum != schema.end()) {
+            assign_data_value(property->mutable_minimum(), *minimum);
+          }
+          if (const auto maximum = schema.find("maximum");
+              maximum != schema.end()) {
+            assign_data_value(property->mutable_maximum(), *maximum);
+          }
+        }
+      }
+    }
+    if (const auto required = capability.input_schema.find("required");
+        required != capability.input_schema.end() && required->is_array()) {
+      for (const auto& item : *required) {
+        if (item.is_string()) {
+          capability_proto->mutable_input_schema()->add_required(
+              item.get<std::string>());
+        }
+      }
+    }
+
+    for (const auto& action : capability.actions) {
+      auto* action_proto = capability_proto->add_actions();
+      action_proto->set_id(action.id);
+      action_proto->set_description(action.description);
+      action_proto->set_backend(action.backend_id);
+      action_proto->set_method(to_proto_http_method(action.method));
+      action_proto->set_path(action.path_template);
+      assign_named_strings(action_proto->mutable_query(), action.query_parameters);
+      assign_named_strings(action_proto->mutable_headers(), action.headers);
+      if (!action.body_template.is_null()) {
+        assign_data_value(action_proto->mutable_body(), action.body_template);
+      }
+      for (const auto status : action.success_statuses) {
+        action_proto->add_success_statuses(status);
+      }
+    }
+
+    for (const auto& precondition : capability.preconditions) {
+      auto* precondition_proto = capability_proto->add_preconditions();
+      precondition_proto->set_id(precondition.id);
+      precondition_proto->set_description(precondition.description);
+      precondition_proto->set_action(precondition.action_id);
+      assign_expectation(precondition_proto->mutable_expect(), precondition.expect);
+    }
+
+    for (const auto& setup_step : capability.setup_steps) {
+      auto* setup_proto = capability_proto->add_setup();
+      setup_proto->set_id(setup_step.id);
+      setup_proto->set_description(setup_step.description);
+      setup_proto->set_for_precondition(setup_step.for_precondition);
+      setup_proto->set_action(setup_step.action_id);
+    }
+
+    capability_proto->set_action(capability.main_action_id);
+
+    if (capability.verification.has_value()) {
+      auto* verification_proto = capability_proto->mutable_verification();
+      verification_proto->set_action(capability.verification->action_id);
+      assign_expectation(verification_proto->mutable_expect(),
+                         capability.verification->expect);
+      verification_proto->set_attempts(capability.verification->attempts);
+      verification_proto->set_delay_ms(capability.verification->delay_ms);
+      verification_proto->set_success_delay_ms(
+          capability.verification->success_delay_ms);
+    }
+
+    for (const auto& output : capability.output_fields) {
+      auto* output_proto = capability_proto->add_output_fields();
+      output_proto->set_name(output.name);
+      output_proto->set_source(to_proto_output_source(output.source));
+      output_proto->set_transform(to_proto_output_transform(output.transform));
+      if (output.json_pointer.has_value()) {
+        output_proto->set_json_pointer(*output.json_pointer);
+      }
+      if (output.input_name.has_value()) {
+        output_proto->set_input_name(*output.input_name);
+      }
+      if (output.value.has_value()) {
+        assign_data_value(output_proto->mutable_value(), *output.value);
+      }
+      for (const auto& [raw_value, mapped_value] : output.normalize) {
+        auto* normalize_proto = output_proto->add_normalize();
+        normalize_proto->set_raw_value(raw_value);
+        assign_data_value(normalize_proto->mutable_mapped_value(), mapped_value);
+      }
+      if (output.default_value.has_value()) {
+        assign_data_value(output_proto->mutable_default_value(),
+                          *output.default_value);
+      }
+      output_proto->set_required(output.required);
+    }
+  }
+
+  return target;
+}
+
 }  // namespace
 
 std::string_view to_string(const backend_type value) noexcept {
@@ -676,6 +978,18 @@ std::expected<project_definition, std::string> parse_project_text(
   }
 
   return convert_project(project_proto, source_path);
+}
+
+std::expected<std::string, std::string> render_project_text(
+    const project_definition& project) {
+  const auto project_proto = to_proto_project(project);
+  std::string rendered;
+  google::protobuf::TextFormat::Printer printer;
+  printer.SetUseUtf8StringEscaping(true);
+  if (!printer.PrintToString(project_proto, &rendered)) {
+    return std::unexpected("failed to render project protobuf text format");
+  }
+  return rendered;
 }
 
 }  // namespace terva::core::project

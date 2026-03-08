@@ -16,4 +16,7 @@ namespace terva::core::project {
 [[nodiscard]] std::expected<project_definition, std::string> load_project_file(
     const std::filesystem::path& path);
 
+[[nodiscard]] std::expected<std::string, std::string> render_project_text(
+    const project_definition& project);
+
 }  // namespace terva::core::project

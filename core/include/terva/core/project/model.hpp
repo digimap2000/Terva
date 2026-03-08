@@ -40,6 +40,15 @@ struct logging_options final {
   std::optional<std::filesystem::path> file_path;
 };
 
+struct mcp_server_definition final {
+  std::string name;
+  std::string version;
+  std::optional<std::string> title;
+  std::optional<std::string> description;
+  std::optional<std::string> website_url;
+  std::optional<std::string> instructions;
+};
+
 struct backend_definition final {
   std::string id;
   backend_type type{backend_type::localhost_http_json};
@@ -115,6 +124,8 @@ struct capability_definition final {
 struct project_definition final {
   std::string name;
   std::optional<std::string> description;
+  std::optional<std::string> project_type;
+  mcp_server_definition mcp_server;
   logging_options logging;
   std::vector<backend_definition> backends;
   std::vector<capability_definition> capabilities;

@@ -1,60 +1,22 @@
 import { NavLink } from "react-router-dom";
 import {
-  FileText,
-  Layers,
   Moon,
-  Palette,
-  Play,
-  Square,
   Sun,
 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
 import { useTheme } from "@/hooks/use-theme";
 import type { RuntimeState } from "@/hooks/useActiveProject";
-
-interface ActivityItem {
-  to: string;
-  icon: LucideIcon;
-  label: string;
-  end?: boolean;
-}
-
-const activities: ActivityItem[] = [
-  { to: "/", icon: Layers, label: "Project", end: true },
-  { to: "/logs", icon: FileText, label: "Log" },
-  { to: "/theme", icon: Palette, label: "Theme" },
-];
+import { activities } from "@/lib/activity";
 
 interface ActivityRailProps {
   documentOpen: boolean;
   runtimeState: RuntimeState;
-  onToggleRuntime: () => void;
-}
-
-function runtimeLabel(runtimeState: RuntimeState) {
-  switch (runtimeState) {
-    case "running":
-      return "Stop";
-    case "starting":
-      return "Start";
-    case "stopping":
-      return "Stop";
-    case "error":
-      return "Retry";
-    case "stopped":
-      return "Start";
-  }
 }
 
 export function ActivityRail({
   documentOpen,
-  runtimeState,
-  onToggleRuntime,
+  runtimeState: _runtimeState,
 }: ActivityRailProps) {
   const { theme, toggle } = useTheme();
-  const runtimeBusy = runtimeState === "starting" || runtimeState === "stopping";
-  const runtimeRunning = runtimeState === "running";
-  const RuntimeIcon = runtimeRunning ? Square : Play;
 
   return (
     <nav className="flex h-full w-20 flex-col bg-background">
@@ -92,33 +54,6 @@ export function ActivityRail({
         )}
       </div>
       <div className="flex flex-col items-center gap-1 p-2">
-        <button
-          type="button"
-          onClick={onToggleRuntime}
-          disabled={!documentOpen || runtimeBusy}
-          className={[
-            "relative flex w-full flex-col items-center gap-1 rounded-md px-2 py-3 transition-colors",
-            documentOpen
-              ? "text-foreground hover:bg-secondary/50"
-              : "text-muted-foreground/35",
-          ].join(" ")}
-          title={
-            documentOpen
-              ? runtimeRunning
-                ? "Stop the linked Terva runtime"
-                : "Start the linked Terva runtime"
-              : "Open a Terva project to enable runtime controls"
-          }
-        >
-          <span
-            className={[
-              "absolute right-2 top-2 size-2 rounded-full",
-              runtimeRunning ? "bg-emerald-500" : "bg-muted-foreground/40",
-            ].join(" ")}
-          />
-          <RuntimeIcon size={16} />
-          <span className="text-xs font-medium">{runtimeLabel(runtimeState)}</span>
-        </button>
         <button
           type="button"
           onClick={toggle}

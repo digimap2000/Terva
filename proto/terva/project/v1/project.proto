@@ -67,6 +67,15 @@ message LoggingOptions {
   string file_path = 2;
 }
 
+message McpServerDefinition {
+  string name = 1;
+  string version = 2;
+  string title = 3;
+  string description = 4;
+  string website_url = 5;
+  string instructions = 6;
+}
+
 message BackendDefinition {
   string id = 1;
   BackendType type = 2;
@@ -166,4 +175,6 @@ message ProjectDefinition {
   LoggingOptions logging = 3;
   repeated BackendDefinition backends = 4;
   repeated CapabilityDefinition capabilities = 5;
+  string project_type = 6;
+  McpServerDefinition mcp_server = 7;
 }

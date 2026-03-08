@@ -8,6 +8,8 @@ import {
   startActiveRuntime,
   stopActiveRuntime,
   summarizeRecentProjects,
+  updateProjectMetadata,
+  type ProjectMetadataUpdate,
   type ProjectDocument,
   type ProjectSummary,
 } from "@/lib/tauri";
@@ -361,6 +363,30 @@ export function useActiveProject() {
     }
   }
 
+  async function saveProjectMetadata(update: ProjectMetadataUpdate) {
+    if (!project) {
+      return null;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const nextProject = await updateProjectMetadata(update);
+      setProject(nextProject);
+      setRuntimeState("stopped");
+      setRuntimeError(null);
+      setServerUrl(null);
+      return nextProject;
+    } catch (value) {
+      const message = value instanceof Error ? value.message : String(value);
+      setError(message);
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return {
     project,
     loading,
@@ -377,5 +403,6 @@ export function useActiveProject() {
     closeProject,
     startServer,
     stopServer,
+    saveProjectMetadata,
   };
 }

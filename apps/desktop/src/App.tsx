@@ -1,69 +1,108 @@
-import { Route, Routes, useNavigate } from "react-router-dom";
-import { X } from "lucide-react";
+import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { ActivityRail } from "@/components/layout/ActivityRail";
 import { StatusBar } from "@/components/layout/StatusBar";
 import { ZoomIndicator } from "@/components/layout/ZoomIndicator";
-import { Button } from "@/components/ui/button";
+import { Auth } from "@/pages/Auth";
+import { Backends } from "@/pages/Backends";
 import { Generators } from "@/pages/Generators";
-import { Logs } from "@/pages/Logs";
+import { Project } from "@/pages/Project";
+import { Server } from "@/pages/Server";
 import { ThemeReference } from "@/pages/ThemeReference";
 import { Welcome } from "@/pages/Welcome";
 import type { RuntimeLogEntry, RuntimeState } from "@/hooks/useActiveProject";
 import { useActiveProject } from "@/hooks/useActiveProject";
 import { useZoom } from "@/hooks/use-zoom";
-import type { ProjectDocument } from "@/lib/tauri";
+import type { ProjectDocument, ProjectMetadataUpdate } from "@/lib/tauri";
 
 interface WorkspaceProps {
   project: ProjectDocument;
+  error: string | null;
+  loading: boolean;
   logs: RuntimeLogEntry[];
+  recentProjects: Parameters<typeof Welcome>[0]["recentProjects"];
+  recentProjectsLoading: boolean;
+  runtimeError: string | null;
   runtimeState: RuntimeState;
   serverUrl: string | null;
-  onCloseProject: () => void;
-  onToggleRuntime: () => void;
+  onCreateProject: () => void;
+  onOpenProject: () => void;
+  onOpenRecentProject: (path: string) => void;
+  onSaveProjectMetadata: (update: ProjectMetadataUpdate) => Promise<ProjectDocument | null>;
+  onStartServer: () => Promise<boolean>;
+  onStopServer: () => Promise<boolean>;
 }
 
 function Workspace({
   project,
+  error,
+  loading,
   logs,
+  recentProjects,
+  recentProjectsLoading,
+  runtimeError,
   runtimeState,
   serverUrl,
-  onCloseProject,
-  onToggleRuntime,
+  onCreateProject,
+  onOpenProject,
+  onOpenRecentProject,
+  onSaveProjectMetadata,
+  onStartServer,
+  onStopServer,
 }: WorkspaceProps) {
   return (
     <>
-      <ActivityRail
-        documentOpen
-        runtimeState={runtimeState}
-        onToggleRuntime={onToggleRuntime}
-      />
+      <ActivityRail documentOpen runtimeState={runtimeState} />
       <main className="flex flex-1 flex-col overflow-hidden rounded-tl-xl bg-background">
-        <div className="flex items-center justify-between border-b px-6 py-4">
-          <div className="min-w-0">
-            <p className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
-              Active Project
-            </p>
-            <h1 className="truncate text-lg font-semibold">{project.display_name}</h1>
-            <p className="truncate text-sm text-muted-foreground">{project.path}</p>
-          </div>
-          <Button type="button" variant="outline" size="sm" onClick={onCloseProject}>
-            <X />
-            Close Project
-          </Button>
-        </div>
         <div className="min-h-0 flex-1">
           <Routes>
-            <Route path="/" element={<Generators project={project} />} />
-            <Route path="/logs" element={<Logs logs={logs} />} />
+            <Route
+              path="/"
+              element={<Navigate to="/workspace" replace />}
+            />
+            <Route
+              path="/workspace"
+              element={
+                <Welcome
+                  error={error}
+                  loading={loading}
+                  recentProjects={recentProjects}
+                  recentProjectsLoading={recentProjectsLoading}
+                  onCreateProject={onCreateProject}
+                  onOpenProject={onOpenProject}
+                  onOpenRecentProject={onOpenRecentProject}
+                />
+              }
+            />
+            <Route
+              path="/project"
+              element={
+                <Project
+                  project={project}
+                  loading={loading}
+                  onSaveProjectMetadata={onSaveProjectMetadata}
+                />
+              }
+            />
+            <Route path="/behaviour" element={<Generators project={project} />} />
+            <Route path="/backends" element={<Backends project={project} />} />
+            <Route path="/auth" element={<Auth />} />
+            <Route
+              path="/server"
+              element={
+                <Server
+                  logs={logs}
+                  runtimeError={runtimeError}
+                  runtimeState={runtimeState}
+                  serverUrl={serverUrl}
+                  onStartServer={onStartServer}
+                  onStopServer={onStopServer}
+                />
+              }
+            />
             <Route path="/theme" element={<ThemeReference />} />
           </Routes>
         </div>
       </main>
-      <StatusBar
-        activeProject={project}
-        runtimeState={runtimeState}
-        serverUrl={serverUrl}
-      />
     </>
   );
 }
@@ -76,14 +115,15 @@ export default function App() {
     recentProjectsLoading,
     error,
     runtimeState,
+    runtimeError,
     serverUrl,
     logs,
     openProject,
     createProject,
     openRecentProject,
-    closeProject,
     startServer,
     stopServer,
+    saveProjectMetadata,
   } = useActiveProject();
   const { zoom } = useZoom();
   const navigate = useNavigate();
@@ -91,36 +131,22 @@ export default function App() {
   async function handleOpenProject() {
     const opened = await openProject();
     if (opened) {
-      navigate("/");
+      navigate("/behaviour");
     }
   }
 
   async function handleCreateProject() {
     const created = await createProject();
     if (created) {
-      navigate("/");
+      navigate("/behaviour");
     }
   }
 
   async function handleOpenRecentProject(path: string) {
     const opened = await openRecentProject(path);
     if (opened) {
-      navigate("/");
+      navigate("/behaviour");
     }
-  }
-
-  function handleCloseProject() {
-    closeProject();
-    navigate("/");
-  }
-
-  async function handleToggleRuntime() {
-    if (runtimeState === "running") {
-      await stopServer();
-      return;
-    }
-
-    await startServer();
   }
 
   return (
@@ -130,19 +156,24 @@ export default function App() {
         {project ? (
           <Workspace
             project={project}
+            error={error}
+            loading={loading}
             logs={logs}
+            recentProjects={recentProjects}
+            recentProjectsLoading={recentProjectsLoading}
+            runtimeError={runtimeError}
             runtimeState={runtimeState}
             serverUrl={serverUrl}
-            onCloseProject={handleCloseProject}
-            onToggleRuntime={handleToggleRuntime}
+            onCreateProject={handleCreateProject}
+            onOpenProject={handleOpenProject}
+            onOpenRecentProject={handleOpenRecentProject}
+            onSaveProjectMetadata={saveProjectMetadata}
+            onStartServer={startServer}
+            onStopServer={stopServer}
           />
         ) : (
           <>
-            <ActivityRail
-              documentOpen={false}
-              runtimeState="stopped"
-              onToggleRuntime={() => {}}
-            />
+            <ActivityRail documentOpen={false} runtimeState="stopped" />
             <Welcome
               error={error}
               loading={loading}
@@ -155,9 +186,11 @@ export default function App() {
           </>
         )}
       </div>
-      {!project ? (
-        <StatusBar activeProject={null} runtimeState="stopped" serverUrl={null} />
-      ) : null}
+      <StatusBar
+        activeProject={project}
+        runtimeState={project ? runtimeState : "stopped"}
+        serverUrl={project ? serverUrl : null}
+      />
     </div>
   );
 }

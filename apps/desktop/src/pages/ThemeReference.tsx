@@ -165,7 +165,7 @@ export function ThemeReference() {
         </div>
 
         <ScrollArea className="min-h-0 flex-1">
-          <div className="max-w-4xl p-6">
+          <div className="p-6">
             {/* ── Colours ──────────────────────────────────────── */}
             <TabsContent value="colours" className="mt-0 space-y-6">
               <div>

@@ -1,11 +1,8 @@
 import { useCallback, useMemo, useState } from "react";
 import {
   ChevronDown,
-  DatabaseZap,
   EllipsisVertical,
   FileCode2,
-  Layers,
-  NotebookTabs,
   PanelLeftClose,
   PanelLeftOpen,
 } from "lucide-react";
@@ -31,6 +28,12 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import type { InspectionCapability, ProjectDocument } from "@/lib/tauri";
+
+interface CapabilityCategory {
+  id: string;
+  label: string;
+  capabilities: InspectionCapability[];
+}
 
 const actionButtonClass =
   "flex size-5 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground";
@@ -98,46 +101,65 @@ function getSavedSidebarSize(): string {
   return DEFAULT_SIDEBAR_PCT;
 }
 
-function SummaryCard({
-  title,
-  description,
-  icon: Icon,
-}: {
-  title: string;
-  description: string;
-  icon: typeof Layers;
-}) {
-  return (
-    <Card className="border-border/70">
-      <CardHeader className="space-y-3">
-        <div className="flex size-10 items-center justify-center rounded-lg bg-secondary text-foreground">
-          <Icon size={18} />
-        </div>
-        <div className="space-y-1">
-          <CardTitle>{title}</CardTitle>
-          <CardDescription>{description}</CardDescription>
-        </div>
-      </CardHeader>
-    </Card>
-  );
-}
-
 function capabilitySummary(capability: InspectionCapability) {
   return `${capability.actions.length} action${
     capability.actions.length === 1 ? "" : "s"
   } · main ${capability.main_action_id}`;
 }
 
+function capabilityCategoryFor(capability: InspectionCapability) {
+  const key = `${capability.id} ${capability.tool_name}`.toLowerCase();
+  if (key.includes("power") || key.includes("active") || key.includes("standby")) {
+    return {
+      id: "power-management",
+      label: "Power Management",
+    };
+  }
+  if (key.includes("playback")) {
+    return {
+      id: "playback",
+      label: "Playback",
+    };
+  }
+  return {
+    id: "uncategorised",
+    label: "Uncategorised",
+  };
+}
+
 interface GeneratorsProps {
   project: ProjectDocument;
 }
 
+function categoryLabelFor(capability: InspectionCapability) {
+  return capabilityCategoryFor(capability).label;
+}
+
 export function Generators({ project }: GeneratorsProps) {
   const capabilities = project.inspection?.capabilities ?? [];
-  const backends = project.inspection?.backends ?? [];
   const [selectedId, setSelectedId] = useState(capabilities[0]?.id ?? "");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [sidebarSize] = useState(getSavedSidebarSize);
+  const [activeTab, setActiveTab] = useState("summary");
+  const [diagnosticTab, setDiagnosticTab] = useState("info");
+
+  const categories = useMemo<CapabilityCategory[]>(() => {
+    const grouped = new Map<string, CapabilityCategory>();
+    for (const capability of capabilities) {
+      const category = capabilityCategoryFor(capability);
+      const existing = grouped.get(category.id);
+      if (existing) {
+        existing.capabilities.push(capability);
+        continue;
+      }
+      grouped.set(category.id, {
+        id: category.id,
+        label: category.label,
+        capabilities: [capability],
+      });
+    }
+    return Array.from(grouped.values());
+  }, [capabilities]);
 
   const selectedCapability = useMemo(() => {
     return capabilities.find((item) => item.id === selectedId) ?? capabilities[0] ?? null;
@@ -168,41 +190,44 @@ export function Generators({ project }: GeneratorsProps) {
       >
         <nav className="flex h-full flex-col overflow-hidden bg-sidebar text-sidebar-foreground">
           <div className="flex flex-col gap-0 p-3">
-            <span className="text-sm font-medium">Project Workbench</span>
+            <span className="text-sm font-medium">Behaviour Workbench</span>
             <span className="text-xs text-muted-foreground">
-              Live document structure from the shared C++ core
+              Capability categories are derived from the active project for now and
+              will become user-configurable.
             </span>
           </div>
           <ScrollArea className="flex-1">
             <div className="space-y-1 px-1">
-              <Collapsible defaultOpen className="group/collapsible">
-                <SectionHeading title="Capabilities" />
-                <CollapsibleContent>
-                  <div className="ml-3 space-y-0.5 border-l pl-2">
-                    {capabilities.map((capability) => (
-                      <MenuItem
-                        key={capability.id}
-                        label={capability.tool_name}
-                        summary={capabilitySummary(capability)}
-                        isActive={selectedCapability?.id === capability.id}
-                        onClick={() => setSelectedId(capability.id)}
-                      />
-                    ))}
-                  </div>
-                </CollapsibleContent>
-              </Collapsible>
+              {categories.map((category) => (
+                <Collapsible key={category.id} defaultOpen className="group/collapsible">
+                  <SectionHeading title={category.label} />
+                  <CollapsibleContent>
+                    <div className="ml-3 space-y-0.5 border-l pl-2">
+                      {category.capabilities.map((capability) => (
+                        <MenuItem
+                          key={capability.id}
+                          label={capability.tool_name}
+                          summary={capabilitySummary(capability)}
+                          isActive={selectedCapability?.id === capability.id}
+                          onClick={() => {
+                            setSelectedId(capability.id);
+                            setActiveTab("summary");
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </CollapsibleContent>
+                </Collapsible>
+              ))}
 
               <Collapsible defaultOpen className="group/collapsible">
-                <SectionHeading title="Backends" />
+                <SectionHeading title="Document" />
                 <CollapsibleContent>
                   <div className="ml-3 space-y-0.5 border-l pl-2">
-                    {backends.map((backend) => (
-                      <MenuItem
-                        key={backend.id}
-                        label={backend.id}
-                        summary={`${backend.backend_type} · ${backend.base_url}`}
-                      />
-                    ))}
+                    <MenuItem
+                      label={project.display_name}
+                      summary={`${project.capability_count} capabilities · ${project.backend_count} backends`}
+                    />
                   </div>
                 </CollapsibleContent>
               </Collapsible>
@@ -236,140 +261,310 @@ export function Generators({ project }: GeneratorsProps) {
             </div>
           </div>
 
-          <Tabs defaultValue="overview" className="flex min-h-0 flex-1 flex-col">
-            <div className="border-b px-4 py-2">
-              <TabsList>
-                <TabsTrigger value="overview">Overview</TabsTrigger>
-                <TabsTrigger value="capability">Capability</TabsTrigger>
-                <TabsTrigger value="document">Document</TabsTrigger>
-              </TabsList>
-            </div>
+          <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1">
+            <ResizablePanel id="behaviour-main" defaultSize={72} minSize={40}>
+              <Tabs
+                value={activeTab}
+                onValueChange={setActiveTab}
+                className="flex h-full min-h-0 flex-1 flex-col"
+              >
+                <div className="border-b px-4 py-2">
+                  <TabsList>
+                    <TabsTrigger value="summary">Summary</TabsTrigger>
+                    <TabsTrigger value="inputs">Inputs</TabsTrigger>
+                    <TabsTrigger value="output">Output</TabsTrigger>
+                    <TabsTrigger value="steps">Steps</TabsTrigger>
+                    <TabsTrigger value="verification">Verification</TabsTrigger>
+                  </TabsList>
+                </div>
 
-            <TabsContent value="overview" className="min-h-0 flex-1 overflow-auto p-6">
-              <div className="grid gap-4 xl:grid-cols-3">
-                <SummaryCard
-                  title="Capabilities"
-                  description={`${project.capability_count} explicit capabilities exposed by the project model.`}
-                  icon={Layers}
-                />
-                <SummaryCard
-                  title="Backends"
-                  description={`${project.backend_count} backend mapping${project.backend_count === 1 ? "" : "s"} declared in the active document.`}
-                  icon={DatabaseZap}
-                />
-                <SummaryCard
-                  title="Validation"
-                  description={
-                    project.validation.ok
-                      ? "The loaded document validates cleanly."
-                      : `${project.validation.issues.length} validation issue${
-                          project.validation.issues.length === 1 ? "" : "s"
-                        } need attention.`
-                  }
-                  icon={NotebookTabs}
-                />
-              </div>
-
-              {project.validation.ok ? null : (
-                <Card className="mt-4 border-amber-500/30 bg-amber-500/5">
-                  <CardHeader>
-                    <CardTitle>Validation Issues</CardTitle>
-                    <CardDescription>
-                      The core loaded the document, but runtime operations stay blocked until
-                      these issues are fixed.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {project.validation.issues.map((issue) => (
-                      <div key={`${issue.path}-${issue.message}`} className="rounded-lg border px-3 py-2">
-                        <div className="text-sm font-medium">{issue.path}</div>
-                        <div className="text-sm text-muted-foreground">{issue.message}</div>
-                      </div>
-                    ))}
-                  </CardContent>
-                </Card>
-              )}
-            </TabsContent>
-
-            <TabsContent value="capability" className="min-h-0 flex-1 overflow-auto p-6">
-              {selectedCapability ? (
-                <div className="space-y-4">
-                  <Card className="border-border/70">
-                    <CardHeader>
-                      <CardTitle>{selectedCapability.tool_name}</CardTitle>
-                      <CardDescription>{selectedCapability.description}</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4 text-sm">
-                      <div>
-                        <div className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
-                          Inputs
-                        </div>
-                        <div className="mt-2">
-                          {selectedCapability.input_schema_keys.length > 0
-                            ? selectedCapability.input_schema_keys.join(", ")
-                            : "No input fields"}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
-                          Actions
-                        </div>
-                        <div className="mt-2 space-y-2">
-                          {selectedCapability.actions.map((action) => (
-                            <div key={action.id} className="rounded-lg border px-3 py-2">
-                              <div className="font-medium">
-                                {action.method} {action.path}
+                {selectedCapability ? (
+                  <>
+                    <TabsContent value="summary" className="min-h-0 flex-1 overflow-auto p-6">
+                      <div className="space-y-4">
+                        <Card className="border-border/70">
+                          <CardHeader>
+                            <CardTitle>{selectedCapability.tool_name}</CardTitle>
+                            <CardDescription>{selectedCapability.description}</CardDescription>
+                          </CardHeader>
+                          <CardContent className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                            <div className="rounded-lg border px-4 py-3">
+                              <div className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
+                                Category
                               </div>
-                              <div className="text-muted-foreground">
-                                {action.backend_id} · success {action.success_statuses.join(", ")}
+                              <div className="mt-2 text-sm font-medium">
+                                {categoryLabelFor(selectedCapability)}
                               </div>
                             </div>
-                          ))}
-                        </div>
+                            <div className="rounded-lg border px-4 py-3">
+                              <div className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
+                                Main Action
+                              </div>
+                              <div className="mt-2 text-sm font-medium">
+                                {selectedCapability.main_action_id}
+                              </div>
+                            </div>
+                            <div className="rounded-lg border px-4 py-3">
+                              <div className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
+                                Input Fields
+                              </div>
+                              <div className="mt-2 text-sm font-medium">
+                                {selectedCapability.input_schema_keys.length}
+                              </div>
+                            </div>
+                            <div className="rounded-lg border px-4 py-3">
+                              <div className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
+                                Steps
+                              </div>
+                              <div className="mt-2 text-sm font-medium">
+                                {selectedCapability.actions.length}
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                        <Card className="border-border/70">
+                          <CardHeader>
+                            <CardTitle>Command Overview</CardTitle>
+                            <CardDescription>
+                              High-level summary of the selected behaviour and its runtime
+                              shape.
+                            </CardDescription>
+                          </CardHeader>
+                          <CardContent className="space-y-3 text-sm text-muted-foreground">
+                            <p>
+                              This behaviour exposes the MCP tool{" "}
+                              <span className="font-medium text-foreground">
+                                {selectedCapability.tool_name}
+                              </span>{" "}
+                              and currently resolves through{" "}
+                              <span className="font-medium text-foreground">
+                                {selectedCapability.actions.length}
+                              </span>{" "}
+                              configured step{selectedCapability.actions.length === 1 ? "" : "s"}.
+                            </p>
+                            <p>
+                              Capability-level editing will land here as the desktop model
+                              grows, but this tab is already the stable place to understand the
+                              selected command at a glance.
+                            </p>
+                          </CardContent>
+                        </Card>
                       </div>
-                      {selectedCapability.verification ? (
-                        <div>
-                          <div className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
-                            Verification
+                    </TabsContent>
+
+                    <TabsContent value="inputs" className="min-h-0 flex-1 overflow-auto p-6">
+                      <Card className="border-border/70">
+                        <CardHeader>
+                          <CardTitle>Input Fields</CardTitle>
+                          <CardDescription>
+                            Configure the fields this behaviour accepts from MCP callers.
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-3">
+                          {selectedCapability.input_schema_keys.length > 0 ? (
+                            selectedCapability.input_schema_keys.map((field) => (
+                              <div key={field} className="rounded-lg border px-4 py-3 text-sm">
+                                <div className="font-medium">{field}</div>
+                                <div className="mt-1 text-muted-foreground">
+                                  Field-level editing is not wired yet.
+                                </div>
+                              </div>
+                            ))
+                          ) : (
+                            <div className="rounded-lg border border-dashed px-4 py-6 text-sm text-muted-foreground">
+                              This behaviour currently accepts no explicit input fields.
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </TabsContent>
+
+                    <TabsContent value="output" className="min-h-0 flex-1 overflow-auto p-6">
+                      <Card className="border-border/70">
+                        <CardHeader>
+                          <CardTitle>Output Parsing</CardTitle>
+                          <CardDescription>
+                            Define how backend results are interpreted and mapped into the
+                            behaviour output.
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4 text-sm text-muted-foreground">
+                          <div className="rounded-lg border border-dashed px-4 py-4">
+                            Output mapping details are not exposed through the desktop
+                            inspection model yet.
                           </div>
-                          <div className="mt-2 text-muted-foreground">
-                            {selectedCapability.verification.action_id} · attempts{" "}
-                            {selectedCapability.verification.attempts}
+                          <p>
+                            This tab is reserved for output-field mapping, normalization, and
+                            response shaping once those details are surfaced from the core.
+                          </p>
+                        </CardContent>
+                      </Card>
+                    </TabsContent>
+
+                    <TabsContent value="steps" className="min-h-0 flex-1 overflow-auto p-6">
+                      <div className="space-y-4">
+                        <Card className="border-border/70">
+                          <CardHeader>
+                            <CardTitle>Execution Steps</CardTitle>
+                            <CardDescription>
+                              Configure the ordered backend calls that implement this
+                              behaviour.
+                            </CardDescription>
+                          </CardHeader>
+                          <CardContent className="space-y-3">
+                            {selectedCapability.actions.map((action, index) => (
+                              <div key={action.id} className="rounded-lg border px-4 py-3 text-sm">
+                                <div className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
+                                  Step {index + 1}
+                                </div>
+                                <div className="mt-2 font-medium">
+                                  {action.method} {action.path}
+                                </div>
+                                <div className="mt-1 text-muted-foreground">
+                                  Backend {action.backend_id} · success{" "}
+                                  {action.success_statuses.join(", ")}
+                                </div>
+                              </div>
+                            ))}
+                          </CardContent>
+                        </Card>
+                        <Card className="border-border/70">
+                          <CardHeader>
+                            <CardTitle>Prerequisites</CardTitle>
+                            <CardDescription>
+                              Guards, setup steps, and multi-step orchestration will be edited
+                              here.
+                            </CardDescription>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="rounded-lg border border-dashed px-4 py-4 text-sm text-muted-foreground">
+                              No explicit prerequisite or setup configuration is surfaced yet.
+                            </div>
+                          </CardContent>
+                        </Card>
+                      </div>
+                    </TabsContent>
+
+                    <TabsContent
+                      value="verification"
+                      className="min-h-0 flex-1 overflow-auto p-6"
+                    >
+                      <Card className="border-border/70">
+                        <CardHeader>
+                          <CardTitle>Verification</CardTitle>
+                          <CardDescription>
+                            Readback and post-action checks for the selected behaviour.
+                          </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          {selectedCapability.verification ? (
+                            <div className="rounded-lg border px-4 py-4 text-sm text-muted-foreground">
+                              <div className="font-medium text-foreground">
+                                {selectedCapability.verification.action_id}
+                              </div>
+                              <div className="mt-2">
+                                Attempts {selectedCapability.verification.attempts} · delay{" "}
+                                {selectedCapability.verification.delay_ms}ms · success delay{" "}
+                                {selectedCapability.verification.success_delay_ms}ms
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="rounded-lg border border-dashed px-4 py-4 text-sm text-muted-foreground">
+                              This behaviour does not currently define verification.
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </TabsContent>
+                  </>
+                ) : (
+                  <div className="flex flex-1 items-center justify-center p-6">
+                    <Card className="w-full max-w-2xl border-border/70">
+                      <CardHeader>
+                        <CardTitle>No behaviour selected</CardTitle>
+                        <CardDescription>
+                          Choose a capability from the sidebar to configure its inputs,
+                          output parsing, execution steps, and verification.
+                        </CardDescription>
+                      </CardHeader>
+                    </Card>
+                  </div>
+                )}
+              </Tabs>
+            </ResizablePanel>
+
+            <ResizableHandle withHandle />
+
+            <ResizablePanel id="behaviour-diagnostics" defaultSize={28} minSize={18}>
+              <Tabs
+                value={diagnosticTab}
+                onValueChange={setDiagnosticTab}
+                className="flex h-full min-h-0 flex-col"
+              >
+                <div className="border-y px-4 py-2">
+                  <TabsList>
+                    <TabsTrigger value="info">Info</TabsTrigger>
+                    <TabsTrigger value="warnings">Warnings</TabsTrigger>
+                    <TabsTrigger value="errors">Errors</TabsTrigger>
+                  </TabsList>
+                </div>
+
+                <TabsContent value="info" className="min-h-0 flex-1 overflow-auto p-4">
+                  <Card className="border-border/70">
+                    <CardHeader>
+                      <CardTitle>Selected Behaviour Info</CardTitle>
+                      <CardDescription>
+                        Context and metadata for the current capability will appear here.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="text-sm text-muted-foreground">
+                      {selectedCapability ? (
+                        <div className="space-y-2">
+                          <div>
+                            Behaviour <span className="font-medium text-foreground">{selectedCapability.tool_name}</span>
                           </div>
+                          <div>
+                            Category <span className="font-medium text-foreground">{categoryLabelFor(selectedCapability)}</span>
+                          </div>
+                          <div>Capability-specific validation and guidance is not wired yet.</div>
                         </div>
-                      ) : null}
+                      ) : (
+                        <div>Select a behaviour to inspect its information panel.</div>
+                      )}
                     </CardContent>
                   </Card>
-                </div>
-              ) : (
-                <Card className="border-border/70">
-                  <CardHeader>
-                    <CardTitle>No capability selected</CardTitle>
-                    <CardDescription>
-                      The loaded project does not currently expose any parsed capabilities.
-                    </CardDescription>
-                  </CardHeader>
-                </Card>
-              )}
-            </TabsContent>
+                </TabsContent>
 
-            <TabsContent value="document" className="min-h-0 flex-1 overflow-auto p-6">
-              <Card className="border-border/70">
-                <CardHeader>
-                  <CardTitle>Document Source</CardTitle>
-                  <CardDescription>
-                    The desktop shell is currently holding the raw `.terva` contents plus the
-                    parsed inspection model from the shared core.
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <pre className="overflow-auto rounded-xl border bg-secondary/20 p-4 text-xs leading-6 text-muted-foreground">
-                    {project.contents}
-                  </pre>
-                </CardContent>
-              </Card>
-            </TabsContent>
-          </Tabs>
+                <TabsContent value="warnings" className="min-h-0 flex-1 overflow-auto p-4">
+                  <Card className="border-border/70">
+                    <CardHeader>
+                      <CardTitle>Warnings</CardTitle>
+                      <CardDescription>
+                        Non-blocking validation findings for the active capability will be listed here.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="text-sm text-muted-foreground">
+                      Placeholder: no capability-scoped warnings are surfaced yet.
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+
+                <TabsContent value="errors" className="min-h-0 flex-1 overflow-auto p-4">
+                  <Card className="border-border/70">
+                    <CardHeader>
+                      <CardTitle>Errors</CardTitle>
+                      <CardDescription>
+                        Blocking validation issues for the active capability will appear here.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="text-sm text-muted-foreground">
+                      Placeholder: capability-scoped error reporting is not implemented yet.
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+              </Tabs>
+            </ResizablePanel>
+          </ResizablePanelGroup>
         </div>
       </ResizablePanel>
     </ResizablePanelGroup>

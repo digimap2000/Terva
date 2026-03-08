@@ -27,6 +27,8 @@ class engine final {
       std::string contents);
   [[nodiscard]] std::expected<json, std::string> update_document_contents(
       std::string contents);
+  [[nodiscard]] std::expected<json, std::string> update_project_metadata(
+      const json& metadata);
   [[nodiscard]] std::expected<json, std::string> close_document();
 
   [[nodiscard]] std::expected<json, std::string> summarize_project_file(

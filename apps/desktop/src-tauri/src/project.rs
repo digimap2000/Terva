@@ -101,6 +101,18 @@ impl CoreBridge {
         let raw = core.pin_mut().drain_events();
         decode_payload(&raw)
     }
+
+    pub fn update_project_metadata(
+        &self,
+        update: &ProjectMetadataUpdate,
+    ) -> Result<ProjectDocument, TervaError> {
+        let mut core = self.lock()?;
+        let payload = serde_json::to_string(update).map_err(|error| {
+            TervaError::Project(format!("Failed to encode metadata update: {error}"))
+        })?;
+        let raw = core.pin_mut().update_project_metadata(&payload);
+        decode_payload(&raw)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -177,10 +189,24 @@ pub struct InspectionCapability {
     pub verification: Option<InspectionVerification>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct McpServerMetadata {
+    pub name: String,
+    pub version: String,
+    pub title: String,
+    pub description: String,
+    pub website_url: String,
+    pub instructions: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectInspection {
     pub name: String,
     pub description: String,
+    #[serde(default)]
+    pub project_type: String,
+    #[serde(default)]
+    pub mcp_server: McpServerMetadata,
     pub source_path: String,
     pub backends: Vec<InspectionBackend>,
     pub capabilities: Vec<InspectionCapability>,
@@ -192,6 +218,10 @@ pub struct ProjectDocument {
     pub file_name: String,
     pub display_name: String,
     pub description: String,
+    #[serde(default)]
+    pub project_type: String,
+    #[serde(default)]
+    pub mcp_server: McpServerMetadata,
     pub contents: String,
     pub parse_error: String,
     pub backend_count: usize,
@@ -206,6 +236,8 @@ pub struct ProjectSummary {
     pub file_name: String,
     pub display_name: String,
     pub description: String,
+    #[serde(default)]
+    pub project_type: String,
     pub parse_error: String,
     pub backend_count: usize,
     pub capability_count: usize,
@@ -236,6 +268,19 @@ pub struct RuntimeStatusPayload {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventBatch {
     pub events: Vec<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectMetadataUpdate {
+    pub project_name: String,
+    pub project_description: String,
+    pub project_type: String,
+    pub mcp_name: String,
+    pub mcp_version: String,
+    pub mcp_title: String,
+    pub mcp_description: String,
+    pub mcp_website_url: String,
+    pub mcp_instructions: String,
 }
 
 fn validate_project_extension(path: &Path) -> Result<(), TervaError> {
@@ -294,6 +339,15 @@ fn starter_project_contents(path: &Path) -> String {
     format!(
         r#"name: "{project_name}"
 description: "New Terva project."
+project_type: "device_bridge"
+
+mcp_server {{
+  name: "{project_name}"
+  version: "0.1.0"
+  title: "{project_name}"
+  description: "New Terva MCP server."
+  instructions: "Use the exposed tools and resources from this Terva project."
+}}
 
 logging {{
   sink: "stderr"
@@ -393,4 +447,11 @@ pub fn summarize_recent_projects(
     }
 
     summaries
+}
+
+pub fn update_project_metadata(
+    bridge: &CoreBridge,
+    update: ProjectMetadataUpdate,
+) -> Result<ProjectDocument, TervaError> {
+    bridge.update_project_metadata(&update)
 }

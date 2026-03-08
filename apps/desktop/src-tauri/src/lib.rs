@@ -5,7 +5,7 @@ mod project;
 use error::TervaError;
 use project::{
     CoreBridge, EventBatch, ProjectDocument, ProjectInspection, ProjectSummary,
-    RuntimeStatusPayload, ToolList, ValidationResult,
+    ProjectMetadataUpdate, RuntimeStatusPayload, ToolList, ValidationResult,
 };
 use serde_json::Value;
 use tauri::State;
@@ -121,6 +121,14 @@ fn drain_core_events(bridge: State<'_, CoreBridge>) -> Result<EventBatch, TervaE
     bridge.inner().drain_events()
 }
 
+#[tauri::command]
+fn update_project_metadata(
+    bridge: State<'_, CoreBridge>,
+    update: ProjectMetadataUpdate,
+) -> Result<ProjectDocument, TervaError> {
+    project::update_project_metadata(bridge.inner(), update)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let bridge = CoreBridge::new();
@@ -140,6 +148,7 @@ pub fn run() {
             start_active_runtime,
             stop_active_runtime,
             summarize_recent_projects,
+            update_project_metadata,
             validate_active_project
         ])
         .run(tauri::generate_context!())

@@ -16,6 +16,7 @@ class DesktopCore final {
   rust::String open_document(rust::Str path);
   rust::String load_document_contents(rust::Str source_path, rust::Str contents);
   rust::String update_document_contents(rust::Str contents);
+  rust::String update_project_metadata(rust::Str metadata_json);
   rust::String close_document();
 
   rust::String summarize_document(rust::Str path) const;

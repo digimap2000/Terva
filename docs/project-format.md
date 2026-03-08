@@ -10,9 +10,26 @@ Top-level fields:
 
 - `name`
 - `description`
+- `project_type`
+- `mcp_server`
 - `logging`
 - `backends`
 - `capabilities`
+
+## MCP Server Metadata
+
+`mcp_server` carries the top-level server identity used by the linked MCP runtime.
+
+Fields:
+
+- `name`
+- `version`
+- `title`
+- `description`
+- `website_url`
+- `instructions`
+
+For current MCP compatibility, `name` and `version` should always be set.
 
 ## Backend Shape
 

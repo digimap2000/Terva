@@ -47,19 +47,20 @@ export function StatusBar({
   return (
     <div className="flex h-8 shrink-0 items-center justify-between border-t bg-background px-3 text-xs text-muted-foreground">
       <div className="flex items-center gap-3">
-        <span>Single document workspace</span>
+        <span
+          className="max-w-[20rem] truncate font-medium text-foreground"
+          title={activeProject ? activeProject.path : undefined}
+        >
+          {activeProject ? activeProject.display_name : "No project open"}
+        </span>
+      </div>
+
+      <div className="flex items-center gap-3">
         <span className="flex items-center gap-2">
           <span className={`size-2 rounded-full ${runtime.tone}`} />
           <span>Server {runtime.label}</span>
         </span>
         {serverUrl ? <span className="font-mono text-[11px]">{serverUrl}</span> : null}
-      </div>
-
-      <div className="flex items-center gap-3">
-        <span className="max-w-[28rem] truncate">
-          {activeProject ? activeProject.path : "No project open"}
-        </span>
-        <span className="font-mono text-xs">v0.1.0</span>
       </div>
     </div>
   );
