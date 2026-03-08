@@ -1,7 +1,12 @@
 name: "Streamer Power Control"
 description: "Known real-device control and playback session reads for the streamer at 192.168.1.111:15081."
-project_type: "device_bridge"
+mcp_transports: MCP_TRANSPORT_STREAMABLE_HTTP
+product_connector: PRODUCT_CONNECTOR_HTTP
 
+product_http {
+  version: "1.1"
+  tls_enabled: false
+}
 mcp_server {
   name: "streamer-power-control"
   version: "1.0.1"

@@ -41,6 +41,7 @@ interface WorkspaceProps {
   onCreateProject: () => void;
   onOpenProject: () => void;
   onOpenRecentProject: (path: string) => void;
+  onRemoveRecentProject: (path: string) => Promise<boolean>;
   onSaveProjectMetadata: (update: ProjectMetadataUpdate) => Promise<ProjectDocument | null>;
   onStartServer: () => Promise<boolean>;
   onStopServer: () => Promise<boolean>;
@@ -76,6 +77,7 @@ function Workspace({
   onCreateProject,
   onOpenProject,
   onOpenRecentProject,
+  onRemoveRecentProject,
   onSaveProjectMetadata,
   onStartServer,
   onStopServer,
@@ -95,6 +97,7 @@ function Workspace({
               onCreateProject={onCreateProject}
               onOpenProject={onOpenProject}
               onOpenRecentProject={onOpenRecentProject}
+              onRemoveRecentProject={onRemoveRecentProject}
             />
           }
         />
@@ -104,7 +107,10 @@ function Workspace({
             <Project
               project={project}
               loading={loading}
+              runtimeState={runtimeState}
               onSaveProjectMetadata={onSaveProjectMetadata}
+              onStartServer={onStartServer}
+              onStopServer={onStopServer}
             />
           }
         />
@@ -140,6 +146,7 @@ interface NoProjectShellProps {
   onCreateProject: () => void;
   onOpenProject: () => void;
   onOpenRecentProject: (path: string) => void;
+  onRemoveRecentProject: (path: string) => Promise<boolean>;
 }
 
 function NoProjectShell({
@@ -150,6 +157,7 @@ function NoProjectShell({
   onCreateProject,
   onOpenProject,
   onOpenRecentProject,
+  onRemoveRecentProject,
 }: NoProjectShellProps) {
   return (
     <Shell documentOpen={false} runtimeState="stopped">
@@ -166,6 +174,7 @@ function NoProjectShell({
               onCreateProject={onCreateProject}
               onOpenProject={onOpenProject}
               onOpenRecentProject={onOpenRecentProject}
+              onRemoveRecentProject={onRemoveRecentProject}
             />
           }
         />
@@ -191,6 +200,7 @@ export default function App() {
     openProject,
     createProject,
     openRecentProject,
+    removeProject,
     startServer,
     stopServer,
     saveProjectMetadata,
@@ -219,6 +229,9 @@ export default function App() {
         }
 
         setNewProjectPreview(preview);
+        if (!newProjectName.trim()) {
+          setNewProjectName(preview.friendly_name);
+        }
         setNewProjectDirectory(preview.directory);
         setNewProjectError(null);
       } catch (value) {
@@ -245,12 +258,23 @@ export default function App() {
     }
   }
 
-  function openNewProjectDialog() {
+  async function openNewProjectDialog() {
     setNewProjectName("");
     setNewProjectDirectory(null);
     setNewProjectPreview(null);
     setNewProjectError(null);
-    setNewProjectDialogOpen(true);
+
+    try {
+      const preview = await getNewProjectPreview("", null);
+      setNewProjectName(preview.friendly_name);
+      setNewProjectDirectory(preview.directory);
+      setNewProjectPreview(preview);
+      setNewProjectDialogOpen(true);
+    } catch (value) {
+      const message = value instanceof Error ? value.message : String(value);
+      setNewProjectError(message);
+      setNewProjectDialogOpen(true);
+    }
   }
 
   function closeNewProjectDialog() {
@@ -336,6 +360,7 @@ export default function App() {
               onCreateProject={openNewProjectDialog}
               onOpenProject={handleOpenProject}
               onOpenRecentProject={handleOpenRecentProject}
+              onRemoveRecentProject={removeProject}
               onSaveProjectMetadata={saveProjectMetadata}
               onStartServer={startServer}
               onStopServer={stopServer}
@@ -349,6 +374,7 @@ export default function App() {
               onCreateProject={openNewProjectDialog}
               onOpenProject={handleOpenProject}
               onOpenRecentProject={handleOpenRecentProject}
+              onRemoveRecentProject={removeProject}
             />
           )}
         </div>

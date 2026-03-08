@@ -6,6 +6,7 @@ import {
   House,
   Layers,
   LockKeyhole,
+  Palette,
   Settings2,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -29,6 +30,7 @@ export const topActivities: ActivityItem[] = [
 
 export const bottomActivities: ActivityItem[] = [
   { to: "/inspector", icon: Radar, label: "Inspector" },
+  { to: "/theme", icon: Palette, label: "Theme" },
 ];
 
 export const activities: ActivityItem[] = [...topActivities, ...bottomActivities];

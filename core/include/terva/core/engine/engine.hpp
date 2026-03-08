@@ -22,6 +22,8 @@ class engine final {
 
   [[nodiscard]] std::expected<json, std::string> open_document(
       const std::filesystem::path& path);
+  [[nodiscard]] std::expected<json, std::string> close_document();
+  [[nodiscard]] std::expected<json, std::string> generate_project_name();
   [[nodiscard]] std::expected<json, std::string> update_project_metadata(
       const json& metadata);
 

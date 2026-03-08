@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import {
+  closeActiveProjectDocument,
   createProjectDocumentWithOptions,
+  deleteProjectDocument,
   drainCoreEvents,
   openProjectDocument,
   openProjectDocumentAtPath,
@@ -101,6 +103,13 @@ function mergeRecentProject(
     0,
     MAX_RECENT_PROJECTS,
   );
+}
+
+function removeRecentProject(
+  projects: StoredRecentProject[],
+  path: string,
+): StoredRecentProject[] {
+  return projects.filter((project) => project.path !== path);
 }
 
 function combineRecentProjects(
@@ -375,6 +384,39 @@ export function useActiveProject() {
     }
   }
 
+  async function removeProject(path: string) {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const isActiveProject = project?.path === path;
+      if (isActiveProject) {
+        await closeActiveProjectDocument();
+      }
+
+      await deleteProjectDocument(path);
+
+      writeStoredRecentProjects(removeRecentProject(readStoredRecentProjects(), path));
+
+      if (isActiveProject) {
+        setProject(null);
+        setRuntimeState("stopped");
+        setRuntimeError(null);
+        setServerUrl(null);
+        setLogs([]);
+      }
+
+      await refreshRecentProjects();
+      return true;
+    } catch (value) {
+      const message = value instanceof Error ? value.message : String(value);
+      setError(message);
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return {
     project,
     loading,
@@ -388,6 +430,7 @@ export function useActiveProject() {
     openProject,
     createProject,
     openRecentProject,
+    removeProject,
     startServer,
     stopServer,
     saveProjectMetadata,

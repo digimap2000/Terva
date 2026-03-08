@@ -162,6 +162,38 @@ convert_named_string_list(
   return std::unexpected(std::string(path) + " is not supported");
 }
 
+[[nodiscard]] std::expected<mcp_transport, std::string> convert_mcp_transport(
+    const proto::McpTransport value,
+    std::string_view path) {
+  switch (value) {
+    case proto::MCP_TRANSPORT_STREAMABLE_HTTP:
+      return mcp_transport::streamable_http;
+    case proto::MCP_TRANSPORT_STDIO:
+      return mcp_transport::stdio;
+    case proto::MCP_TRANSPORT_UNSPECIFIED:
+      break;
+    default:
+      break;
+  }
+  return std::unexpected(std::string(path) + " is not supported");
+}
+
+[[nodiscard]] std::expected<product_connector, std::string> convert_product_connector(
+    const proto::ProductConnector value,
+    std::string_view path) {
+  switch (value) {
+    case proto::PRODUCT_CONNECTOR_HTTP:
+      return product_connector::http;
+    case proto::PRODUCT_CONNECTOR_UART:
+      return product_connector::uart;
+    case proto::PRODUCT_CONNECTOR_UNSPECIFIED:
+      break;
+    default:
+      break;
+  }
+  return std::unexpected(std::string(path) + " is not supported");
+}
+
 [[nodiscard]] std::expected<http_method, std::string> convert_http_method(
     const proto::HttpMethod value,
     std::string_view path) {
@@ -299,9 +331,6 @@ convert_named_string_list(
   if (!source.description().empty()) {
     project.description = source.description();
   }
-  if (!source.project_type().empty()) {
-    project.project_type = source.project_type();
-  }
   project.mcp_server.name =
       source.has_mcp_server() && !source.mcp_server().name().empty()
           ? source.mcp_server().name()
@@ -327,6 +356,52 @@ convert_named_string_list(
     }
   } else if (project.description.has_value()) {
     project.mcp_server.description = project.description;
+  }
+
+  for (int index = 0; index < source.mcp_transports_size(); ++index) {
+    auto transport = convert_mcp_transport(
+        source.mcp_transports(index),
+        "project.mcp_transports[" + std::to_string(index) + "]");
+    if (!transport) {
+      return std::unexpected(transport.error());
+    }
+    project.mcp_transports.push_back(*transport);
+  }
+
+  if (source.product_connector() != proto::PRODUCT_CONNECTOR_UNSPECIFIED) {
+    auto connector = convert_product_connector(
+        source.product_connector(),
+        "project.product_connector");
+    if (!connector) {
+      return std::unexpected(connector.error());
+    }
+    project.product_connector = *connector;
+  }
+
+  if (source.has_product_http()) {
+    if (!source.product_http().version().empty()) {
+      project.product_http.version = source.product_http().version();
+    }
+    project.product_http.tls_enabled = source.product_http().tls_enabled();
+    auto headers = convert_named_string_list(
+        source.product_http().mandatory_headers(),
+        "project.product_http.mandatory_headers");
+    if (!headers) {
+      return std::unexpected(headers.error());
+    }
+    project.product_http.mandatory_headers = std::move(*headers);
+  }
+
+  if (source.has_product_uart()) {
+    if (source.product_uart().has_baud_rate()) {
+      project.product_uart.baud_rate = source.product_uart().baud_rate();
+    }
+    if (!source.product_uart().port().empty()) {
+      project.product_uart.port = source.product_uart().port();
+    }
+    if (!source.product_uart().framing().empty()) {
+      project.product_uart.framing = source.product_uart().framing();
+    }
   }
   if (source.has_logging()) {
     if (!source.logging().sink().empty()) {
@@ -682,9 +757,6 @@ proto::ProjectDefinition to_proto_project(const project_definition& project) {
   if (project.description.has_value()) {
     target.set_description(*project.description);
   }
-  if (project.project_type.has_value()) {
-    target.set_project_type(*project.project_type);
-  }
   if (!project.logging.sink.empty()) {
     target.mutable_logging()->set_sink(project.logging.sink);
   }
@@ -704,6 +776,48 @@ proto::ProjectDefinition to_proto_project(const project_definition& project) {
   }
   if (project.mcp_server.instructions.has_value()) {
     target.mutable_mcp_server()->set_instructions(*project.mcp_server.instructions);
+  }
+  for (const auto transport : project.mcp_transports) {
+    switch (transport) {
+      case mcp_transport::streamable_http:
+        target.add_mcp_transports(proto::MCP_TRANSPORT_STREAMABLE_HTTP);
+        break;
+      case mcp_transport::stdio:
+        target.add_mcp_transports(proto::MCP_TRANSPORT_STDIO);
+        break;
+    }
+  }
+  if (project.product_connector.has_value()) {
+    switch (*project.product_connector) {
+      case product_connector::http:
+        target.set_product_connector(proto::PRODUCT_CONNECTOR_HTTP);
+        break;
+      case product_connector::uart:
+        target.set_product_connector(proto::PRODUCT_CONNECTOR_UART);
+        break;
+    }
+  }
+  if (project.product_http.version.has_value() || project.product_http.tls_enabled ||
+      !project.product_http.mandatory_headers.empty()) {
+    if (project.product_http.version.has_value()) {
+      target.mutable_product_http()->set_version(*project.product_http.version);
+    }
+    target.mutable_product_http()->set_tls_enabled(project.product_http.tls_enabled);
+    assign_named_strings(
+        target.mutable_product_http()->mutable_mandatory_headers(),
+        project.product_http.mandatory_headers);
+  }
+  if (project.product_uart.baud_rate.has_value() || project.product_uart.port.has_value() ||
+      project.product_uart.framing.has_value()) {
+    if (project.product_uart.baud_rate.has_value()) {
+      target.mutable_product_uart()->set_baud_rate(*project.product_uart.baud_rate);
+    }
+    if (project.product_uart.port.has_value()) {
+      target.mutable_product_uart()->set_port(*project.product_uart.port);
+    }
+    if (project.product_uart.framing.has_value()) {
+      target.mutable_product_uart()->set_framing(*project.product_uart.framing);
+    }
   }
 
   for (const auto& backend : project.backends) {
@@ -848,6 +962,26 @@ std::string_view to_string(const backend_type value) noexcept {
   return "unknown";
 }
 
+std::string_view to_string(const mcp_transport value) noexcept {
+  switch (value) {
+    case mcp_transport::streamable_http:
+      return "streamable_http";
+    case mcp_transport::stdio:
+      return "stdio";
+  }
+  return "unknown";
+}
+
+std::string_view to_string(const product_connector value) noexcept {
+  switch (value) {
+    case product_connector::http:
+      return "http";
+    case product_connector::uart:
+      return "uart";
+  }
+  return "unknown";
+}
+
 std::string_view to_string(const http_method value) noexcept {
   switch (value) {
     case http_method::get:
@@ -892,6 +1026,28 @@ std::optional<backend_type> parse_backend_type(const std::string_view value) noe
   }
   if (value == "localhost_http_json") {
     return backend_type::localhost_http_json;
+  }
+  return std::nullopt;
+}
+
+std::optional<mcp_transport> parse_mcp_transport(
+    const std::string_view value) noexcept {
+  if (value == "streamable_http") {
+    return mcp_transport::streamable_http;
+  }
+  if (value == "stdio") {
+    return mcp_transport::stdio;
+  }
+  return std::nullopt;
+}
+
+std::optional<product_connector> parse_product_connector(
+    const std::string_view value) noexcept {
+  if (value == "http") {
+    return product_connector::http;
+  }
+  if (value == "uart") {
+    return product_connector::uart;
   }
   return std::nullopt;
 }

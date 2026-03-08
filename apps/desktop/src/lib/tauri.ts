@@ -53,10 +53,30 @@ export interface McpServerMetadata {
   instructions: string;
 }
 
+export interface NamedValue {
+  name: string;
+  value: string;
+}
+
+export interface ProductHttpSettings {
+  version: string;
+  tls_enabled: boolean;
+  mandatory_headers: NamedValue[];
+}
+
+export interface ProductUartSettings {
+  baud_rate: number | null;
+  port: string;
+  framing: string;
+}
+
 export interface ProjectInspection {
   name: string;
   description: string;
-  project_type: string;
+  mcp_transports: string[];
+  product_connector: string;
+  product_http: ProductHttpSettings;
+  product_uart: ProductUartSettings;
   mcp_server: McpServerMetadata;
   source_path: string;
   backends: InspectionBackend[];
@@ -68,7 +88,11 @@ export interface ProjectDocument {
   file_name: string;
   display_name: string;
   description: string;
-  project_type: string;
+  server_runnable: boolean;
+  mcp_transports: string[];
+  product_connector: string;
+  product_http: ProductHttpSettings;
+  product_uart: ProductUartSettings;
   mcp_server: McpServerMetadata;
   contents: string;
   parse_error: string;
@@ -83,7 +107,9 @@ export interface ProjectSummary {
   file_name: string;
   display_name: string;
   description: string;
-  project_type: string;
+  server_runnable: boolean;
+  mcp_transports: string[];
+  product_connector: string;
   parse_error: string;
   backend_count: number;
   capability_count: number;
@@ -94,7 +120,14 @@ export interface ProjectSummary {
 export interface ProjectMetadataUpdate {
   project_name: string;
   project_description: string;
-  project_type: string;
+  mcp_transports: string[];
+  product_connector: string;
+  product_http_version: string;
+  product_http_tls_enabled: boolean;
+  product_http_mandatory_headers: NamedValue[];
+  product_uart_baud_rate: number | null;
+  product_uart_port: string;
+  product_uart_framing: string;
   mcp_name: string;
   mcp_version: string;
   mcp_title: string;
@@ -146,6 +179,10 @@ export async function openProjectDocumentAtPath(path: string): Promise<ProjectDo
   return invoke<ProjectDocument>("open_project_document_at_path", { path });
 }
 
+export async function closeActiveProjectDocument(): Promise<void> {
+  return invoke<void>("close_active_project_document");
+}
+
 export async function getNewProjectPreview(
   friendlyName: string,
   directory?: string | null,
@@ -166,6 +203,10 @@ export async function createProjectDocumentWithOptions(
   request: NewProjectRequest,
 ): Promise<ProjectDocument> {
   return invoke<ProjectDocument>("create_project_document_with_options", { request });
+}
+
+export async function deleteProjectDocument(path: string): Promise<void> {
+  return invoke<void>("delete_project_document", { path });
 }
 
 export async function summarizeRecentProjects(

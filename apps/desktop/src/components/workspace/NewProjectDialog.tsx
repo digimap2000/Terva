@@ -83,7 +83,7 @@ export function NewProjectDialog({
                   id="new-project-name"
                   value={friendlyName}
                   onChange={(event) => onFriendlyNameChange(event.target.value)}
-                  placeholder="Naim Streamer Control"
+                  placeholder="Audio Streamer Control"
                   autoFocus
                   disabled={busy}
                 />

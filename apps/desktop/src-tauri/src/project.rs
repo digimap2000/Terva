@@ -35,6 +35,13 @@ impl CoreBridge {
         decode_payload::<ProjectDocument>(&raw)
     }
 
+    pub fn close_document(&self) -> Result<(), TervaError> {
+        let mut core = self.lock()?;
+        let raw = core.pin_mut().close_document();
+        let _: serde_json::Value = decode_payload(&raw)?;
+        Ok(())
+    }
+
     pub fn summarize_document(&self, path: &Path) -> Result<ProjectSummary, TervaError> {
         let core = self.lock()?;
         let rendered_path = path.display().to_string();
@@ -46,6 +53,18 @@ impl CoreBridge {
             .and_then(|value| value.duration_since(UNIX_EPOCH).ok())
             .map(|value| value.as_millis() as u64);
         Ok(summary)
+    }
+
+    pub fn generate_project_name(&self) -> Result<String, TervaError> {
+        let mut core = self.lock()?;
+        let raw = core.pin_mut().generate_project_name();
+        let suggestion: ProjectNameSuggestion = decode_payload(&raw)?;
+        if suggestion.friendly_name.trim().is_empty() || suggestion.slug.trim().is_empty() {
+            return Err(TervaError::Project(
+                "Core returned an invalid project name suggestion".to_string(),
+            ));
+        }
+        Ok(suggestion.friendly_name)
     }
 
     pub fn start_runtime(&self) -> Result<RuntimeStatusPayload, TervaError> {
@@ -86,6 +105,12 @@ struct CoreEnvelope<T> {
     error: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct ProjectNameSuggestion {
+    friendly_name: String,
+    slug: String,
+}
+
 fn decode_payload<T: DeserializeOwned>(raw: &str) -> Result<T, TervaError> {
     let envelope: CoreEnvelope<T> = serde_json::from_str(raw)
         .map_err(|error| TervaError::Project(format!("Failed to decode core response: {error}")))?;
@@ -109,14 +134,41 @@ pub struct McpServerMetadata {
     pub instructions: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct NamedValue {
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ProductHttpSettings {
+    pub version: String,
+    pub tls_enabled: bool,
+    #[serde(default)]
+    pub mandatory_headers: Vec<NamedValue>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ProductUartSettings {
+    pub baud_rate: Option<i32>,
+    pub port: String,
+    pub framing: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectDocument {
     pub path: String,
     pub file_name: String,
     pub display_name: String,
     pub description: String,
+    pub server_runnable: bool,
     #[serde(default)]
-    pub project_type: String,
+    pub mcp_transports: Vec<String>,
+    pub product_connector: String,
+    #[serde(default)]
+    pub product_http: ProductHttpSettings,
+    #[serde(default)]
+    pub product_uart: ProductUartSettings,
     #[serde(default)]
     pub mcp_server: McpServerMetadata,
     pub contents: String,
@@ -133,8 +185,10 @@ pub struct ProjectSummary {
     pub file_name: String,
     pub display_name: String,
     pub description: String,
+    pub server_runnable: bool,
     #[serde(default)]
-    pub project_type: String,
+    pub mcp_transports: Vec<String>,
+    pub product_connector: String,
     pub parse_error: String,
     pub backend_count: usize,
     pub capability_count: usize,
@@ -158,7 +212,15 @@ pub struct EventBatch {
 pub struct ProjectMetadataUpdate {
     pub project_name: String,
     pub project_description: String,
-    pub project_type: String,
+    pub mcp_transports: Vec<String>,
+    pub product_connector: String,
+    pub product_http_version: String,
+    pub product_http_tls_enabled: bool,
+    #[serde(default)]
+    pub product_http_mandatory_headers: Vec<NamedValue>,
+    pub product_uart_baud_rate: Option<i32>,
+    pub product_uart_port: String,
+    pub product_uart_framing: String,
     pub mcp_name: String,
     pub mcp_version: String,
     pub mcp_title: String,
@@ -271,7 +333,14 @@ fn starter_project_contents(preview: &NewProjectPreview) -> String {
     format!(
         r#"name: "{project_name}"
 description: "New Terva project."
-project_type: "device_bridge"
+
+mcp_transports: MCP_TRANSPORT_STREAMABLE_HTTP
+product_connector: PRODUCT_CONNECTOR_HTTP
+
+product_http {{
+  version: "1.1"
+  tls_enabled: false
+}}
 
 mcp_server {{
   name: "{mcp_server_name}"
@@ -342,11 +411,22 @@ pub fn open_project_document_at_path(
     bridge.open_document(&path)
 }
 
+pub fn close_active_project_document(bridge: &CoreBridge) -> Result<(), TervaError> {
+    bridge.close_document()
+}
+
 pub fn get_new_project_preview(
+    bridge: &CoreBridge,
     friendly_name: String,
     directory: Option<String>,
-) -> NewProjectPreview {
-    build_new_project_preview(&friendly_name, directory.as_deref())
+) -> Result<NewProjectPreview, TervaError> {
+    let resolved_name = if friendly_name.trim().is_empty() {
+        bridge.generate_project_name()?
+    } else {
+        friendly_name
+    };
+
+    Ok(build_new_project_preview(&resolved_name, directory.as_deref()))
 }
 
 pub async fn pick_project_directory(directory: Option<String>) -> Option<String> {
@@ -365,7 +445,12 @@ pub async fn create_project_document(
     bridge: &CoreBridge,
     request: NewProjectRequest,
 ) -> Result<ProjectDocument, TervaError> {
-    let preview = build_new_project_preview(&request.friendly_name, Some(&request.directory));
+    let resolved_name = if request.friendly_name.trim().is_empty() {
+        bridge.generate_project_name()?
+    } else {
+        request.friendly_name
+    };
+    let preview = build_new_project_preview(&resolved_name, Some(&request.directory));
     let path = PathBuf::from(&preview.target_path);
     let parent_directory = path.parent().unwrap_or(Path::new("."));
 
@@ -405,6 +490,21 @@ pub fn summarize_recent_projects(bridge: &CoreBridge, paths: Vec<String>) -> Vec
     }
 
     summaries
+}
+
+pub fn delete_project_document(path: String) -> Result<(), TervaError> {
+    let path = PathBuf::from(path);
+    validate_project_extension(&path)?;
+
+    if !path.exists() {
+        return Err(TervaError::Project(format!(
+            "Project does not exist at {}",
+            path.display()
+        )));
+    }
+
+    trash::delete(&path)
+        .map_err(|error| TervaError::Project(format!("Failed to move project to Trash: {error}")))
 }
 
 pub fn update_project_metadata(

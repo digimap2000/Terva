@@ -14,6 +14,8 @@ class DesktopCore final {
   DesktopCore& operator=(const DesktopCore&) = delete;
 
   rust::String open_document(rust::Str path);
+  rust::String close_document();
+  rust::String generate_project_name();
   rust::String update_project_metadata(rust::Str metadata_json);
 
   rust::String summarize_document(rust::Str path) const;

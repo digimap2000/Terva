@@ -10,6 +10,18 @@ enum BackendType {
   BACKEND_TYPE_LOCALHOST_HTTP_JSON = 2;
 }
 
+enum McpTransport {
+  MCP_TRANSPORT_UNSPECIFIED = 0;
+  MCP_TRANSPORT_STREAMABLE_HTTP = 1;
+  MCP_TRANSPORT_STDIO = 2;
+}
+
+enum ProductConnector {
+  PRODUCT_CONNECTOR_UNSPECIFIED = 0;
+  PRODUCT_CONNECTOR_HTTP = 1;
+  PRODUCT_CONNECTOR_UART = 2;
+}
+
 enum HttpMethod {
   HTTP_METHOD_UNSPECIFIED = 0;
   HTTP_METHOD_GET = 1;
@@ -74,6 +86,18 @@ message McpServerDefinition {
   string description = 4;
   string website_url = 5;
   string instructions = 6;
+}
+
+message ProductHttpSettings {
+  string version = 1;
+  bool tls_enabled = 2;
+  repeated NamedString mandatory_headers = 3;
+}
+
+message ProductUartSettings {
+  optional int32 baud_rate = 1;
+  string port = 2;
+  string framing = 3;
 }
 
 message BackendDefinition {
@@ -175,6 +199,9 @@ message ProjectDefinition {
   LoggingOptions logging = 3;
   repeated BackendDefinition backends = 4;
   repeated CapabilityDefinition capabilities = 5;
-  string project_type = 6;
-  McpServerDefinition mcp_server = 7;
+  McpServerDefinition mcp_server = 6;
+  repeated McpTransport mcp_transports = 7;
+  ProductConnector product_connector = 8;
+  ProductHttpSettings product_http = 9;
+  ProductUartSettings product_uart = 10;
 }

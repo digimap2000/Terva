@@ -17,7 +17,7 @@ export function ActivityRail({
   runtimeState: _runtimeState,
 }: ActivityRailProps) {
   const { theme, toggle } = useTheme();
-  const availableWithoutProject = new Set(["/workspace", "/inspector"]);
+  const availableWithoutProject = new Set(["/workspace", "/inspector", "/theme"]);
   const renderItem = ({ to, icon: Icon, label, end }: (typeof topActivities)[number]) =>
     documentOpen || availableWithoutProject.has(to) ? (
       <NavLink
@@ -59,11 +59,10 @@ export function ActivityRail({
         <button
           type="button"
           onClick={toggle}
-          className="flex w-full flex-col items-center gap-1 rounded-md px-2 py-3 text-muted-foreground transition-colors hover:bg-secondary/50"
+          className="flex w-full items-center justify-center rounded-md px-2 py-2 text-muted-foreground transition-colors hover:bg-secondary/50"
           title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
         >
           {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
-          <span className="text-xs font-medium">Theme</span>
         </button>
       </div>
     </nav>

@@ -58,8 +58,17 @@ async fn open_project_document_at_path(
 }
 
 #[tauri::command]
-fn get_new_project_preview(friendly_name: String, directory: Option<String>) -> NewProjectPreview {
-    project::get_new_project_preview(friendly_name, directory)
+fn close_active_project_document(bridge: State<'_, CoreBridge>) -> Result<(), TervaError> {
+    project::close_active_project_document(bridge.inner())
+}
+
+#[tauri::command]
+fn get_new_project_preview(
+    bridge: State<'_, CoreBridge>,
+    friendly_name: String,
+    directory: Option<String>,
+) -> Result<NewProjectPreview, TervaError> {
+    project::get_new_project_preview(bridge.inner(), friendly_name, directory)
 }
 
 #[tauri::command]
@@ -73,6 +82,11 @@ async fn create_project_document_with_options(
     request: NewProjectRequest,
 ) -> Result<ProjectDocument, TervaError> {
     project::create_project_document(bridge.inner(), request).await
+}
+
+#[tauri::command]
+fn delete_project_document(path: String) -> Result<(), TervaError> {
+    project::delete_project_document(path)
 }
 
 #[tauri::command]
@@ -114,7 +128,9 @@ pub fn run() {
     tauri::Builder::default()
         .manage(bridge)
         .invoke_handler(tauri::generate_handler![
+            close_active_project_document,
             create_project_document_with_options,
+            delete_project_document,
             drain_core_events,
             get_new_project_preview,
             open_project_document,

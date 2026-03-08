@@ -39,14 +39,17 @@ std::vector<validation_issue> validate_project(const project_definition& project
   if (project.name.empty()) {
     issues.push_back({"project.name", "must not be empty"});
   }
-  if (!project.project_type.has_value() || project.project_type->empty()) {
-    issues.push_back({"project.project_type", "must not be empty"});
-  }
   if (project.mcp_server.name.empty()) {
     issues.push_back({"project.mcp_server.name", "must not be empty"});
   }
   if (project.mcp_server.version.empty()) {
     issues.push_back({"project.mcp_server.version", "must not be empty"});
+  }
+  if (project.mcp_transports.empty()) {
+    issues.push_back({"project.mcp_transports", "must contain at least one transport"});
+  }
+  if (!project.product_connector.has_value()) {
+    issues.push_back({"project.product_connector", "must be set"});
   }
   if (project.mcp_server.website_url.has_value() &&
       !project.mcp_server.website_url->empty() &&
@@ -54,6 +57,20 @@ std::vector<validation_issue> validate_project(const project_definition& project
     issues.push_back({"project.mcp_server.website_url",
                       "must be an HTTP or HTTPS URL"});
   }
+  for (const auto& [name, value] : project.product_http.mandatory_headers) {
+    if (name.empty()) {
+      issues.push_back({"project.product_http.mandatory_headers",
+                        "header names must not be empty"});
+    }
+    if (value.empty()) {
+      issues.push_back({"project.product_http.mandatory_headers." + name,
+                        "header values must not be empty"});
+    }
+  }
+  if (project.product_uart.baud_rate.has_value() && *project.product_uart.baud_rate <= 0) {
+    issues.push_back({"project.product_uart.baud_rate", "must be greater than 0"});
+  }
+
   if (project.backends.empty()) {
     issues.push_back({"project.backends", "must contain at least one backend"});
   }

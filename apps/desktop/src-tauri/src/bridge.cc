@@ -33,6 +33,14 @@ rust::String DesktopCore::open_document(const rust::Str path) {
   return wrap_result(engine_.open_document(std::filesystem::path(std::string(path))));
 }
 
+rust::String DesktopCore::close_document() {
+  return wrap_result(engine_.close_document());
+}
+
+rust::String DesktopCore::generate_project_name() {
+  return wrap_result(engine_.generate_project_name());
+}
+
 rust::String DesktopCore::update_project_metadata(const rust::Str metadata_json) {
   try {
     const auto metadata = terva::core::json::parse(std::string(metadata_json));

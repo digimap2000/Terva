@@ -1,43 +1,42 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import {
-  BadgeCheck,
-  FileSymlink,
-  FolderOpen,
-  Plus,
-  Server,
-  Settings2,
-  ShieldCheck,
-  Waypoints,
-} from "lucide-react";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { FolderOpen, Play, Plus, Square } from "lucide-react";
 import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { WorkbenchShell } from "@/components/layout/WorkbenchShell";
 import { useWorkspaceMenu } from "@/components/layout/WorkspaceMenuContext";
+import {
+  ServerVisualFrame,
+  SystemBridgeVisual,
+} from "@/components/project-visuals/server-visuals";
 import { projectActivity } from "@/lib/activity";
-import type { ProjectDocument, ProjectMetadataUpdate } from "@/lib/tauri";
+import type { NamedValue, ProjectDocument, ProjectMetadataUpdate } from "@/lib/tauri";
+import type { RuntimeState } from "@/hooks/useActiveProject";
 
 interface ProjectProps {
   project: ProjectDocument;
   loading: boolean;
+  runtimeState: RuntimeState;
   onSaveProjectMetadata: (update: ProjectMetadataUpdate) => Promise<ProjectDocument | null>;
+  onStartServer: () => Promise<boolean>;
+  onStopServer: () => Promise<boolean>;
 }
 
 interface ProjectFormState {
   project_name: string;
   project_description: string;
-  project_type: string;
+  mcp_transports: string[];
+  product_connector: string;
+  product_http_version: string;
+  product_http_tls_enabled: boolean;
+  product_http_mandatory_headers_text: string;
+  product_uart_baud_rate: string;
+  product_uart_port: string;
+  product_uart_framing: string;
   mcp_name: string;
   mcp_version: string;
   mcp_title: string;
@@ -46,6 +45,8 @@ interface ProjectFormState {
   mcp_instructions: string;
 }
 
+type ProjectFieldKey = keyof ProjectFormState;
+
 interface FieldHelp {
   label: string;
   summary: string;
@@ -53,7 +54,7 @@ interface FieldHelp {
   example: string;
 }
 
-const fieldHelp: Record<keyof ProjectFormState, FieldHelp> = {
+const fieldHelp: Record<ProjectFieldKey, FieldHelp> = {
   project_name: {
     label: "Project Name",
     summary: "Friendly document identity used throughout the Terva workspace.",
@@ -69,12 +70,61 @@ const fieldHelp: Record<keyof ProjectFormState, FieldHelp> = {
     example:
       "Known real-device control and playback session reads for the streamer at 192.168.1.111:15081.",
   },
-  project_type: {
-    label: "Project Type",
-    summary: "Top-level classification for the project.",
+  mcp_transports: {
+    label: "MCP Transports",
+    summary: "The transport modes this server intends to offer under the MCP surface.",
     explanation:
-      "Keep this narrow and machine-readable. It should describe the broad shape of the MCP project so the rest of the product can reason about it consistently.",
-    example: "device_bridge",
+      "MCP is the front end of a Terva bridge. Use this to declare which transport modes clients should be able to use to reach the server, such as Streamable HTTP or stdio.",
+    example: '["streamable_http"]',
+  },
+  product_connector: {
+    label: "Product Connector",
+    summary: "The technology families Terva will use to reach the user's downstream product.",
+    explanation:
+      "Use this to declare how the bridged product is reached. This is separate from MCP itself and captures the global connection shape of the product side of the bridge.",
+    example: "http",
+  },
+  product_http_version: {
+    label: "HTTP Version",
+    summary: "The HTTP dialect expected by the downstream product API.",
+    explanation:
+      "Use this to record the protocol version the bridged product expects globally, such as HTTP/1.1 or HTTP/2.",
+    example: "1.1",
+  },
+  product_http_tls_enabled: {
+    label: "TLS Support",
+    summary: "Whether the product API is expected to use HTTPS/TLS.",
+    explanation:
+      "Enable this when the product API is intended to be reached over HTTPS rather than plain HTTP.",
+    example: "true",
+  },
+  product_http_mandatory_headers_text: {
+    label: "Mandatory Headers",
+    summary: "Global headers every request to the product API should be prepared to send.",
+    explanation:
+      "Enter one header per line in the form `Header-Name: value`. Use this for product-wide headers rather than capability-specific request details.",
+    example: "X-Api-Version: 1\nAccept: application/json",
+  },
+  product_uart_baud_rate: {
+    label: "Baud Rate",
+    summary: "The serial baud rate expected by the downstream UART product.",
+    explanation:
+      "Set the fixed baud rate the product expects. Leave it empty until the serial requirements are known.",
+    example: "115200",
+  },
+  product_uart_port: {
+    label: "Port Hint",
+    summary: "A known port, device path, or other connection hint for the UART product.",
+    explanation:
+      "Use this to capture the best known connection hint, such as `/dev/tty.usbserial-01` or `COM3`.",
+    example: "/dev/tty.usbserial-01",
+  },
+  product_uart_framing: {
+    label: "Framing",
+    summary: "The expected UART framing or line configuration.",
+    explanation:
+      "Capture the serial framing in a compact form such as `8N1` if the product depends on it.",
+    example: "8N1",
   },
   mcp_name: {
     label: "Server Name",
@@ -129,13 +179,72 @@ function toFormState(project: ProjectDocument): ProjectFormState {
   return {
     project_name: project.display_name,
     project_description: project.description ?? "",
-    project_type: project.project_type || "device_bridge",
+    mcp_transports: project.mcp_transports?.length
+      ? project.mcp_transports
+      : ["streamable_http"],
+    product_connector: project.product_connector || "http",
+    product_http_version: project.product_http?.version ?? "1.1",
+    product_http_tls_enabled: project.product_http?.tls_enabled ?? false,
+    product_http_mandatory_headers_text: headersToText(
+      project.product_http?.mandatory_headers ?? [],
+    ),
+    product_uart_baud_rate:
+      project.product_uart?.baud_rate != null ? String(project.product_uart.baud_rate) : "",
+    product_uart_port: project.product_uart?.port ?? "",
+    product_uart_framing: project.product_uart?.framing ?? "",
     mcp_name: project.mcp_server.name || project.display_name,
     mcp_version: project.mcp_server.version || "1.0.1",
     mcp_title: project.mcp_server.title || "",
     mcp_description: project.mcp_server.description || "",
     mcp_website_url: project.mcp_server.website_url || "",
     mcp_instructions: project.mcp_server.instructions || "",
+  };
+}
+
+function headersToText(headers: NamedValue[]): string {
+  return headers.map((header) => `${header.name}: ${header.value}`).join("\n");
+}
+
+function headersFromText(value: string): NamedValue[] {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const separator = line.indexOf(":");
+      if (separator === -1) {
+        return {
+          name: line,
+          value: "",
+        };
+      }
+      return {
+        name: line.slice(0, separator).trim(),
+        value: line.slice(separator + 1).trim(),
+      };
+    });
+}
+
+function toMetadataUpdate(form: ProjectFormState): ProjectMetadataUpdate {
+  const parsedBaudRate = Number.parseInt(form.product_uart_baud_rate.trim(), 10);
+
+  return {
+    project_name: form.project_name,
+    project_description: form.project_description,
+    mcp_transports: form.mcp_transports,
+    product_connector: form.product_connector,
+    product_http_version: form.product_http_version,
+    product_http_tls_enabled: form.product_http_tls_enabled,
+    product_http_mandatory_headers: headersFromText(form.product_http_mandatory_headers_text),
+    product_uart_baud_rate: Number.isNaN(parsedBaudRate) ? null : parsedBaudRate,
+    product_uart_port: form.product_uart_port,
+    product_uart_framing: form.product_uart_framing,
+    mcp_name: form.mcp_name,
+    mcp_version: form.mcp_version,
+    mcp_title: form.mcp_title,
+    mcp_description: form.mcp_description,
+    mcp_website_url: form.mcp_website_url,
+    mcp_instructions: form.mcp_instructions,
   };
 }
 
@@ -154,7 +263,7 @@ function Field({
 }) {
   return (
     <div
-      className="flex flex-col gap-3 border-b border-border/60 py-5 first:pt-0 last:border-b-0 last:pb-0 md:flex-row md:gap-6"
+      className="flex flex-col gap-3 py-5 first:pt-0 last:pb-0 md:flex-row md:gap-6"
       onMouseEnter={() => onInspect(fieldId)}
     >
       <div className="space-y-1 md:w-1/3 md:shrink-0">
@@ -166,37 +275,204 @@ function Field({
   );
 }
 
+const mcpTransportOptions = [
+  {
+    id: "streamable_http",
+    label: "MCP-HTTP",
+    description: "Expose the server as MCP over Streamable HTTP.",
+  },
+  {
+    id: "stdio",
+    label: "MCP-STDIO",
+    description: "Expose the server as MCP over standard input/output.",
+  },
+] as const;
+
+const productConnectorOptions = [
+  {
+    id: "http",
+    label: "HTTP",
+    description: "Connect to a downstream product API over HTTP or HTTPS.",
+  },
+  {
+    id: "uart",
+    label: "UART",
+    description: "Connect to a downstream product over a serial UART link.",
+  },
+] as const;
+
+function SingleSelectButtons({
+  value,
+  options,
+  disabled,
+  onChange,
+  onInspect,
+}: {
+  value: string;
+  options: ReadonlyArray<{ id: string; label: string; description: string }>;
+  disabled: boolean;
+  onChange: (next: string) => void;
+  onInspect: () => void;
+}) {
+  return (
+    <div className="grid gap-3 md:grid-cols-2">
+      {options.map((option) => {
+        const selected = value === option.id;
+        return (
+          <button
+            key={option.id}
+            type="button"
+            disabled={disabled}
+            onMouseEnter={onInspect}
+            onFocus={onInspect}
+            onClick={() => onChange(option.id)}
+            className={[
+              "rounded-xl border px-4 py-4 text-left transition-colors",
+              selected
+                ? "border-primary/40 bg-primary/10 text-foreground"
+                : "border-border/70 bg-background/70 text-muted-foreground hover:bg-secondary/60",
+            ].join(" ")}
+          >
+            <div className="text-sm font-medium">{option.label}</div>
+            <div className="mt-1 text-xs leading-6">{option.description}</div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function MultiSelectButtons({
+  value,
+  options,
+  disabled,
+  onChange,
+  onInspect,
+}: {
+  value: string[];
+  options: ReadonlyArray<{ id: string; label: string; description: string }>;
+  disabled: boolean;
+  onChange: (next: string[]) => void;
+  onInspect: () => void;
+}) {
+  function toggle(optionId: string) {
+    if (value.includes(optionId)) {
+      onChange(value.filter((item) => item !== optionId));
+      return;
+    }
+    onChange([...value, optionId]);
+  }
+
+  return (
+    <div className="grid gap-3 md:grid-cols-2">
+      {options.map((option) => {
+        const selected = value.includes(option.id);
+        return (
+          <button
+            key={option.id}
+            type="button"
+            disabled={disabled}
+            onMouseEnter={onInspect}
+            onFocus={onInspect}
+            onClick={() => toggle(option.id)}
+            className={[
+              "rounded-xl border px-4 py-4 text-left transition-colors",
+              selected
+                ? "border-primary/40 bg-primary/10 text-foreground"
+                : "border-border/70 bg-background/70 text-muted-foreground hover:bg-secondary/60",
+            ].join(" ")}
+          >
+            <div className="text-sm font-medium">{option.label}</div>
+            <div className="mt-1 text-xs leading-6">{option.description}</div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function ProjectInfographic({
   form,
+  serverRunnable,
+  runtimeState,
+  onStartServer,
+  onStopServer,
+  busy,
 }: {
   form: ProjectFormState;
+  serverRunnable: boolean;
+  runtimeState: RuntimeState;
+  onStartServer: () => Promise<boolean>;
+  onStopServer: () => Promise<boolean>;
+  busy: boolean;
 }) {
   const visibleName = form.mcp_title.trim() || form.mcp_name.trim() || "Unnamed MCP Server";
+  const running = runtimeState === "running";
+  const transitional = runtimeState === "starting" || runtimeState === "stopping";
+  const disabled = (!serverRunnable && !running) || busy || transitional;
+  const productBadge =
+    form.product_connector === "http"
+      ? "HTTP"
+      : form.product_connector === "uart"
+        ? "UART"
+        : "Product";
 
   return (
     <div className="flex h-full flex-col items-center justify-start px-8 pt-10">
       <div className="relative flex w-full max-w-sm flex-col items-center">
         <div className="absolute inset-x-10 top-14 h-40 rounded-full bg-linear-to-br from-primary/18 via-accent/12 to-primary/6 blur-3xl" />
-        <div className="relative flex size-52 items-center justify-center">
-          <div className="absolute inset-0 rounded-full border border-primary/20 bg-linear-to-br from-primary/10 via-background to-accent/10 shadow-[0_30px_80px_-35px_rgba(18,112,255,0.45)]" />
-          <div className="absolute inset-[18px] rounded-full border border-border/60" />
-          <div className="absolute -right-1 top-8 rounded-full border border-accent/35 bg-background/95 px-3 py-2 shadow-sm backdrop-blur">
-            <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.24em] text-muted-foreground">
-              <Waypoints size={14} className="text-accent" />
-              HTTP
+        <div className="relative size-52">
+          <div className="absolute left-0 top-1/2 z-10 -translate-x-1/2 -translate-y-1/2">
+            <div className="rounded-full border border-border/70 bg-background/65 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground shadow-sm backdrop-blur">
+              MCP
             </div>
           </div>
-          <div className="absolute -left-2 bottom-10 rounded-full border border-primary/30 bg-background/95 px-3 py-2 shadow-sm backdrop-blur">
-            <div className="text-[11px] font-medium uppercase tracking-[0.24em] text-muted-foreground">
-              Streamable
+
+          <ServerVisualFrame active={running}>
+            <SystemBridgeVisual />
+          </ServerVisualFrame>
+
+          <div className="absolute right-0 top-1/2 z-10 translate-x-1/2 -translate-y-1/2">
+            <div className="rounded-full border border-border/70 bg-background/65 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-muted-foreground shadow-sm backdrop-blur">
+              {productBadge}
             </div>
           </div>
-          <div className="relative flex size-28 items-center justify-center rounded-[2rem] border border-border/70 bg-background/95 shadow-[0_12px_40px_-18px_rgba(0,0,0,0.45)]">
-            <Server size={52} className="text-foreground" strokeWidth={1.6} />
+          <div className="absolute bottom-0 left-1/2 z-10 -translate-x-1/2 translate-y-1/2">
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => {
+                if (disabled) {
+                  return;
+                }
+                void (running ? onStopServer() : onStartServer());
+              }}
+              className={[
+                "flex size-11 items-center justify-center rounded-full border bg-background/95 shadow-sm backdrop-blur transition-colors",
+                running
+                  ? "border-emerald-400/40 text-emerald-600 hover:bg-emerald-500/10"
+                  : "border-border/70 text-foreground hover:bg-secondary/60",
+                disabled ? "cursor-default opacity-45" : "",
+              ].join(" ")}
+              aria-label={running ? "Stop server" : "Start server"}
+            >
+              {running ? (
+                <Square size={15} fill="currentColor" />
+              ) : (
+                <Play size={15} fill="currentColor" />
+              )}
+            </button>
           </div>
         </div>
 
-        <div className="mt-8 rounded-full border border-border/70 bg-background/90 px-5 py-2.5 text-sm font-medium text-foreground shadow-sm backdrop-blur">
+        <div
+          className={[
+            "mt-10 rounded-full border bg-background/90 px-5 py-2.5 text-sm font-medium shadow-sm backdrop-blur",
+            running
+              ? "border-emerald-400/35 text-emerald-700 dark:text-emerald-300"
+              : "border-border/70 text-foreground",
+          ].join(" ")}
+        >
           {visibleName}
         </div>
       </div>
@@ -204,19 +480,35 @@ function ProjectInfographic({
   );
 }
 
-export function Project({ project, loading, onSaveProjectMetadata }: ProjectProps) {
+export function Project({
+  project,
+  loading,
+  runtimeState,
+  onSaveProjectMetadata,
+  onStartServer,
+  onStopServer,
+}: ProjectProps) {
   const workspaceMenu = useWorkspaceMenu();
   const ProjectHeaderIcon = projectActivity.icon;
   const [activeTab, setActiveTab] = useState("identity");
   const [form, setForm] = useState<ProjectFormState>(() => toFormState(project));
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [lastFailedSaveSignature, setLastFailedSaveSignature] = useState<string | null>(null);
+  const [serverBusy, setServerBusy] = useState(false);
   const [inspectedField, setInspectedField] =
-    useState<keyof ProjectFormState>("project_name");
+    useState<ProjectFieldKey>("project_name");
 
   useEffect(() => {
     setForm(toFormState(project));
     setSaveError(null);
+    setLastFailedSaveSignature(null);
   }, [project]);
+
+  useEffect(() => {
+    if (runtimeState === "running" || runtimeState === "stopped" || runtimeState === "error") {
+      setServerBusy(false);
+    }
+  }, [runtimeState]);
 
   const isDirty = useMemo(() => {
     const baseline = toFormState(project);
@@ -231,19 +523,29 @@ export function Project({ project, loading, onSaveProjectMetadata }: ProjectProp
     }
     if (
       !form.project_name.trim() ||
-      !form.project_type.trim() ||
+      form.mcp_transports.length === 0 ||
+      !form.product_connector ||
       !form.mcp_name.trim() ||
       !form.mcp_version.trim()
     ) {
       return;
     }
 
+    const update = toMetadataUpdate(form);
+    const signature = JSON.stringify(update);
+    if (lastFailedSaveSignature === signature) {
+      return;
+    }
+
     const timeout = window.setTimeout(() => {
       void (async () => {
         setSaveError(null);
-        const updated = await onSaveProjectMetadata(form);
+        const updated = await onSaveProjectMetadata(update);
         if (!updated) {
           setSaveError("Unable to apply project metadata changes.");
+          setLastFailedSaveSignature(signature);
+        } else {
+          setLastFailedSaveSignature(null);
         }
       })();
     }, 400);
@@ -251,7 +553,7 @@ export function Project({ project, loading, onSaveProjectMetadata }: ProjectProp
     return () => {
       window.clearTimeout(timeout);
     };
-  }, [form, isDirty, loading, onSaveProjectMetadata]);
+  }, [form, isDirty, lastFailedSaveSignature, loading, onSaveProjectMetadata]);
 
   function updateField<Key extends keyof ProjectFormState>(
     key: Key,
@@ -269,12 +571,29 @@ export function Project({ project, loading, onSaveProjectMetadata }: ProjectProp
       sidebarTitle={projectActivity.label}
       sidebarDescription="Top-level MCP identity and document metadata for the active project."
       sidebarIcon={projectActivity.icon}
-      sidebarContent={<ProjectInfographic form={form} />}
-      sidebarFooter={
-        <div className="space-y-1 text-xs text-muted-foreground">
-          <div>{form.project_type || "No project type set"}</div>
-          <div>{form.mcp_version ? `Server ${form.mcp_version}` : "No server version set"}</div>
-        </div>
+      sidebarContent={
+        <ProjectInfographic
+          form={form}
+          serverRunnable={project.server_runnable}
+          runtimeState={runtimeState}
+          busy={serverBusy}
+          onStartServer={async () => {
+            setServerBusy(true);
+            try {
+              return await onStartServer();
+            } finally {
+              setServerBusy(false);
+            }
+          }}
+          onStopServer={async () => {
+            setServerBusy(true);
+            try {
+              return await onStopServer();
+            } finally {
+              setServerBusy(false);
+            }
+          }}
+        />
       }
       sidebarHeaderMenu={
         workspaceMenu ? (
@@ -405,8 +724,8 @@ export function Project({ project, loading, onSaveProjectMetadata }: ProjectProp
                     {sidebarToggle}
                     <TabsList variant="line" className="border-0 pb-0">
                       <TabsTrigger value="identity">Identity</TabsTrigger>
-                      <TabsTrigger value="server">MCP Server</TabsTrigger>
-                      <TabsTrigger value="runtime">Runtime</TabsTrigger>
+                      <TabsTrigger value="mcp">MCP</TabsTrigger>
+                      <TabsTrigger value="product">Product</TabsTrigger>
                     </TabsList>
                   </div>
 
@@ -414,8 +733,7 @@ export function Project({ project, loading, onSaveProjectMetadata }: ProjectProp
                     <div className="space-y-6">
                       <div>
                         <p className="text-sm leading-6 text-muted-foreground">
-                          Define the document identity and the broad type of MCP product this
-                          project represents.
+                          Define the document identity for the active Terva project.
                         </p>
                       </div>
 
@@ -434,23 +752,6 @@ export function Project({ project, loading, onSaveProjectMetadata }: ProjectProp
                               updateField("project_name", event.target.value)
                             }
                             placeholder="Streamer Power Control"
-                          />
-                        </Field>
-
-                        <Field
-                          fieldId="project_type"
-                          label="Project Type"
-                          description="Top-level classification for this project."
-                          onInspect={setInspectedField}
-                        >
-                          <Input
-                            value={form.project_type}
-                            disabled={loading}
-                            onFocus={() => setInspectedField("project_type")}
-                            onChange={(event) =>
-                              updateField("project_type", event.target.value)
-                            }
-                            placeholder="device_bridge"
                           />
                         </Field>
 
@@ -475,12 +776,12 @@ export function Project({ project, loading, onSaveProjectMetadata }: ProjectProp
                     </div>
                   </TabsContent>
 
-                  <TabsContent value="server" className="min-h-0 flex-1 overflow-auto pt-6">
+                  <TabsContent value="mcp" className="min-h-0 flex-1 overflow-auto pt-6">
                     <div className="space-y-6">
                       <div>
                         <p className="text-sm leading-6 text-muted-foreground">
-                          These fields map to the top-level MCP initialize surface, including
-                          the mandatory server name and version.
+                          MCP is the front end of this bridge. Define the server identity
+                          clients will see and the transport modes they can use to reach it.
                         </p>
                       </div>
 
@@ -586,90 +887,192 @@ export function Project({ project, loading, onSaveProjectMetadata }: ProjectProp
                             placeholder="Explain how a client should approach this server."
                           />
                         </Field>
+
+                        <Field
+                          fieldId="mcp_transports"
+                          label="Supported Transports"
+                          description="Choose the transport modes this MCP server intends to support."
+                          onInspect={setInspectedField}
+                        >
+                          <MultiSelectButtons
+                            value={form.mcp_transports}
+                            options={mcpTransportOptions}
+                            disabled={loading}
+                            onInspect={() => setInspectedField("mcp_transports")}
+                            onChange={(next) => updateField("mcp_transports", next)}
+                          />
+                        </Field>
+
+                        <Field
+                          fieldId="mcp_name"
+                          label="Effective MCP Surface"
+                          description="A quick read of the current server identity and selected transports."
+                          onInspect={setInspectedField}
+                        >
+                          <div className="rounded-2xl border border-border/70 bg-secondary/20 px-4 py-4 text-sm text-muted-foreground">
+                            <div className="font-medium text-foreground">
+                              {form.mcp_title.trim() || form.mcp_name.trim() || "Unnamed MCP server"}
+                            </div>
+                            <div className="mt-2">
+                              {form.mcp_transports.length > 0
+                                ? form.mcp_transports.join(", ")
+                                : "No transports selected"}
+                            </div>
+                            <div className="mt-1">Version {form.mcp_version}</div>
+                          </div>
+                        </Field>
                       </div>
                     </div>
                   </TabsContent>
 
-                  <TabsContent value="runtime" className="min-h-0 flex-1 overflow-auto pt-6">
-                    <div className="space-y-4">
-                      <div className="grid gap-4 xl:grid-cols-3">
-                        <Card className="border-border/70">
-                          <CardHeader>
-                            <CardTitle className="flex items-center gap-2">
-                              <BadgeCheck size={16} />
-                              Validation
-                            </CardTitle>
-                            <CardDescription>
-                              Current top-level validation state for the active project.
-                            </CardDescription>
-                          </CardHeader>
-                          <CardContent className="space-y-2 text-sm text-muted-foreground">
-                            <div className="font-medium text-foreground">
-                              {project.validation.ok ? "Valid" : "Needs attention"}
-                            </div>
-                            <div>
-                              {project.validation.issues.length} issue
-                              {project.validation.issues.length === 1 ? "" : "s"} reported.
-                            </div>
-                          </CardContent>
-                        </Card>
-
-                        <Card className="border-border/70">
-                          <CardHeader>
-                            <CardTitle className="flex items-center gap-2">
-                              <Settings2 size={16} />
-                              Runtime Summary
-                            </CardTitle>
-                            <CardDescription>
-                              Parsed structure available to the linked core runtime.
-                            </CardDescription>
-                          </CardHeader>
-                          <CardContent className="space-y-2 text-sm text-muted-foreground">
-                            <div>{project.backend_count} backend definitions</div>
-                            <div>{project.capability_count} behaviour definitions</div>
-                            <div>
-                              {project.inspection ? "Inspection loaded from core" : "Inspection unavailable"}
-                            </div>
-                          </CardContent>
-                        </Card>
-
-                        <Card className="border-border/70">
-                          <CardHeader>
-                            <CardTitle className="flex items-center gap-2">
-                              <ShieldCheck size={16} />
-                              MCP Surface
-                            </CardTitle>
-                            <CardDescription>
-                              Current server identity the core will expose.
-                            </CardDescription>
-                          </CardHeader>
-                          <CardContent className="space-y-2 text-sm text-muted-foreground">
-                            <div className="font-medium text-foreground">{form.mcp_name}</div>
-                            <div>Version {form.mcp_version}</div>
-                            <div>{form.mcp_title || "No display title configured"}</div>
-                          </CardContent>
-                        </Card>
+                  <TabsContent value="product" className="min-h-0 flex-1 overflow-auto pt-6">
+                    <div className="space-y-6">
+                      <div>
+                        <p className="text-sm leading-6 text-muted-foreground">
+                          Product captures the connection shape of the thing this
+                          bridge controls. Choose the product technology, then define
+                          the global settings that apply across the whole product API.
+                        </p>
                       </div>
 
-                      <Card className="border-border/70">
-                        <CardHeader>
-                          <CardTitle>Document Path</CardTitle>
-                          <CardDescription>
-                            Active `.terva` source file for this project.
-                          </CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="rounded-xl border p-4">
-                            <div className="flex items-center gap-2 text-xs uppercase tracking-[0.24em] text-muted-foreground">
-                              <FileSymlink size={14} />
-                              Source File
-                            </div>
-                            <div className="mt-2 break-all font-mono text-xs text-muted-foreground">
-                              {project.path}
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
+                      <div className="space-y-0">
+                        <Field
+                          fieldId="product_connector"
+                          label="Connection Technology"
+                          description="Select the technology families this project uses to talk to the product."
+                          onInspect={setInspectedField}
+                        >
+                          <SingleSelectButtons
+                            value={form.product_connector}
+                            options={productConnectorOptions}
+                            disabled={loading}
+                            onInspect={() => setInspectedField("product_connector")}
+                            onChange={(next) => updateField("product_connector", next)}
+                          />
+                        </Field>
+
+                        {form.product_connector === "http" ? (
+                          <>
+                            <Field
+                              fieldId="product_http_version"
+                              label="HTTP Version"
+                              description="Protocol version expected by the downstream product API."
+                              onInspect={setInspectedField}
+                            >
+                              <Input
+                                value={form.product_http_version}
+                                disabled={loading}
+                                onFocus={() => setInspectedField("product_http_version")}
+                                onChange={(event) =>
+                                  updateField("product_http_version", event.target.value)
+                                }
+                                placeholder="1.1"
+                              />
+                            </Field>
+
+                            <Field
+                              fieldId="product_http_tls_enabled"
+                              label="HTTPS / TLS"
+                              description="Whether the product API should be treated as HTTPS/TLS-protected."
+                              onInspect={setInspectedField}
+                            >
+                              <label className="flex items-center gap-3 rounded-2xl border border-border/70 bg-secondary/20 px-4 py-3 text-sm text-foreground">
+                                <input
+                                  type="checkbox"
+                                  checked={form.product_http_tls_enabled}
+                                  disabled={loading}
+                                  onFocus={() => setInspectedField("product_http_tls_enabled")}
+                                  onChange={(event) =>
+                                    updateField(
+                                      "product_http_tls_enabled",
+                                      event.target.checked,
+                                    )
+                                  }
+                                />
+                                <span>Require TLS when reaching the product API</span>
+                              </label>
+                            </Field>
+
+                            <Field
+                              fieldId="product_http_mandatory_headers_text"
+                              label="Mandatory Headers"
+                              description="One `Header: value` pair per line for global product API headers."
+                              onInspect={setInspectedField}
+                            >
+                              <textarea
+                                className={textareaClassName}
+                                value={form.product_http_mandatory_headers_text}
+                                disabled={loading}
+                                onFocus={() =>
+                                  setInspectedField("product_http_mandatory_headers_text")
+                                }
+                                onChange={(event) =>
+                                  updateField(
+                                    "product_http_mandatory_headers_text",
+                                    event.target.value,
+                                  )
+                                }
+                                placeholder={"Accept: application/json\nX-Api-Version: 1"}
+                              />
+                            </Field>
+                          </>
+                        ) : null}
+
+                        {form.product_connector === "uart" ? (
+                          <>
+                            <Field
+                              fieldId="product_uart_baud_rate"
+                              label="Baud Rate"
+                              description="Serial baud rate expected by the downstream product."
+                              onInspect={setInspectedField}
+                            >
+                              <Input
+                                value={form.product_uart_baud_rate}
+                                disabled={loading}
+                                onFocus={() => setInspectedField("product_uart_baud_rate")}
+                                onChange={(event) =>
+                                  updateField("product_uart_baud_rate", event.target.value)
+                                }
+                                placeholder="115200"
+                              />
+                            </Field>
+
+                            <Field
+                              fieldId="product_uart_port"
+                              label="Port Hint"
+                              description="Known device path, port name, or other connection hint."
+                              onInspect={setInspectedField}
+                            >
+                              <Input
+                                value={form.product_uart_port}
+                                disabled={loading}
+                                onFocus={() => setInspectedField("product_uart_port")}
+                                onChange={(event) =>
+                                  updateField("product_uart_port", event.target.value)
+                                }
+                                placeholder="/dev/tty.usbserial-01"
+                              />
+                            </Field>
+
+                            <Field
+                              fieldId="product_uart_framing"
+                              label="Framing"
+                              description="Serial framing or line convention such as 8N1."
+                              onInspect={setInspectedField}
+                            >
+                              <Input
+                                value={form.product_uart_framing}
+                                disabled={loading}
+                                onFocus={() => setInspectedField("product_uart_framing")}
+                                onChange={(event) =>
+                                  updateField("product_uart_framing", event.target.value)
+                                }
+                                placeholder="8N1"
+                              />
+                            </Field>
+                          </>
+                        ) : null}
+                      </div>
                     </div>
                   </TabsContent>
                 </Tabs>

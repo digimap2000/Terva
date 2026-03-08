@@ -10,7 +10,6 @@ Top-level fields:
 
 - `name`
 - `description`
-- `project_type`
 - `mcp_server`
 - `logging`
 - `backends`

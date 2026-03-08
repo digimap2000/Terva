@@ -19,6 +19,11 @@ import {
   FileCode2,
   Layers,
 } from "lucide-react";
+import {
+  BaselineServerVisual,
+  ServerVisualFrame,
+  SystemBridgeVisual,
+} from "@/components/project-visuals/server-visuals";
 
 // ── Colour swatch ───────────────────────────────────────────────────
 
@@ -134,6 +139,92 @@ function TypographySamples() {
           <span className="font-mono text-xs text-muted-foreground/50">{rem}</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+function HexHubIcon() {
+  return (
+    <svg viewBox="0 0 160 160" className="relative size-30 text-foreground" fill="none">
+      <path
+        d="M80 20 126 46v52l-46 26-46-26V46l46-26Z"
+        stroke="currentColor"
+        strokeWidth="5"
+        strokeLinejoin="round"
+      />
+      <circle cx="80" cy="80" r="18" stroke="currentColor" strokeWidth="5" />
+      <circle cx="80" cy="30" r="8" fill="currentColor" />
+      <circle cx="122" cy="54" r="8" fill="currentColor" />
+      <circle cx="122" cy="106" r="8" fill="currentColor" />
+      <circle cx="80" cy="130" r="8" fill="currentColor" />
+      <circle cx="38" cy="106" r="8" fill="currentColor" />
+      <circle cx="38" cy="54" r="8" fill="currentColor" />
+      <path d="M80 62V38M96 72l19-11M96 88l19 11M80 98v24M64 88 45 99M64 72 45 61" stroke="currentColor" strokeWidth="5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function SparkCircuitIcon() {
+  return (
+    <svg viewBox="0 0 160 160" className="relative size-30 text-foreground" fill="none">
+      <path d="M28 50h26l12 18h27l12-18h27" stroke="currentColor" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M28 110h26l12-18h27l12 18h27" stroke="currentColor" strokeWidth="5" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="28" cy="50" r="8" fill="currentColor" />
+      <circle cx="132" cy="50" r="8" fill="currentColor" />
+      <circle cx="28" cy="110" r="8" fill="currentColor" />
+      <circle cx="132" cy="110" r="8" fill="currentColor" />
+      <path d="m78 28-16 30h18l-10 28 28-34H80l14-24Z" fill="currentColor" />
+      <path d="M80 86v22" stroke="currentColor" strokeWidth="5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function CompassNodeIcon() {
+  return (
+    <svg viewBox="0 0 160 160" className="relative size-30 text-foreground" fill="none">
+      <circle cx="80" cy="80" r="50" stroke="currentColor" strokeWidth="5" />
+      <circle cx="80" cy="80" r="10" fill="currentColor" />
+      <path d="M80 26v18M80 116v18M26 80h18M116 80h18" stroke="currentColor" strokeWidth="5" strokeLinecap="round" />
+      <path d="m98 62-12 30-30 12 12-30 30-12Z" stroke="currentColor" strokeWidth="5" strokeLinejoin="round" />
+      <circle cx="120" cy="40" r="8" fill="currentColor" />
+      <path d="M108 48 96 60" stroke="currentColor" strokeWidth="5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function ToolboxGeometryIcon() {
+  return (
+    <svg viewBox="0 0 160 160" className="relative size-30 text-foreground" fill="none">
+      <path d="M34 58h92c8 0 14 6 14 14v42c0 8-6 14-14 14H34c-8 0-14-6-14-14V72c0-8 6-14 14-14Z" stroke="currentColor" strokeWidth="5" />
+      <path d="M58 58V46c0-8 6-14 14-14h16c8 0 14 6 14 14v12" stroke="currentColor" strokeWidth="5" strokeLinecap="round" />
+      <path d="M20 86h120" stroke="currentColor" strokeWidth="5" />
+      <circle cx="54" cy="104" r="10" stroke="currentColor" strokeWidth="5" />
+      <path d="M80 94h20l-10 18H70l10-18Z" stroke="currentColor" strokeWidth="5" strokeLinejoin="round" />
+      <rect x="110" y="96" width="18" height="18" rx="3" stroke="currentColor" strokeWidth="5" />
+    </svg>
+  );
+}
+
+function CandidateCard({
+  name,
+  summary,
+  children,
+}: {
+  name: string;
+  summary: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-2xl border border-border/70 bg-card/70 p-5">
+      <div className="flex flex-col items-center">
+        <ServerVisualFrame>{children}</ServerVisualFrame>
+        <div className="mt-5 text-center">
+          <div className="text-sm font-medium text-foreground">{name}</div>
+          <div className="mt-1 max-w-xs text-xs leading-6 text-muted-foreground">
+            {summary}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -381,33 +472,92 @@ export function ThemeReference() {
             </TabsContent>
 
             {/* ── Icons ─────────────────────────────────────────── */}
-            <TabsContent value="icons" className="mt-0">
-              <p className="mb-4 text-xs text-muted-foreground">
-                Lucide React — 14px and 16px standard sizes
-              </p>
-              <div className="flex flex-wrap items-end gap-4">
-                {(
-                  [
-                    ["14px", 14],
-                    ["16px", 16],
-                    ["20px", 20],
-                    ["24px", 24],
-                  ] as const
-                ).map(([label, size]) => (
-                  <div key={label} className="flex flex-col items-center gap-1">
-                    <div className="flex items-center gap-2 text-foreground">
-                      <Info size={size} />
-                      <TriangleAlert size={size} />
-                      <CircleX size={size} />
-                      <Check size={size} />
-                      <Layers size={size} />
-                      <FileCode2 size={size} />
+            <TabsContent value="icons" className="mt-0 space-y-8">
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium text-muted-foreground">
+                  Project Visualization Concepts
+                </h3>
+                <p className="text-xs leading-6 text-muted-foreground">
+                  Candidate hero marks for the Project view. Each one is shown inside
+                  the current Streamable HTTP framing so you can judge the symbol,
+                  not just the raw SVG.
+                </p>
+              </div>
+
+              <div className="grid gap-5 xl:grid-cols-2 2xl:grid-cols-3">
+                <CandidateCard
+                  name="Hexagonal Hub"
+                  summary="A central control hub with explicit endpoints. Feels infrastructural and network-native."
+                >
+                  <HexHubIcon />
+                </CandidateCard>
+
+                <CandidateCard
+                  name="System Bridge"
+                  summary="Two systems joined by a deliberate bridge. Clearest expression of device-to-MCP mediation."
+                >
+                  <SystemBridgeVisual />
+                </CandidateCard>
+
+                <CandidateCard
+                  name="Spark Circuit"
+                  summary="A pulse moving through a circuit path. More dynamic and operational than static."
+                >
+                  <SparkCircuitIcon />
+                </CandidateCard>
+
+                <CandidateCard
+                  name="Compass Node"
+                  summary="Directional and exploratory, with a node/discovery feel. Good if the product leans orchestration."
+                >
+                  <CompassNodeIcon />
+                </CandidateCard>
+
+                <CandidateCard
+                  name="Toolbox Geometry"
+                  summary="Constructive and configurable. Feels like an instrument for shaping behavior rather than a server appliance."
+                >
+                  <ToolboxGeometryIcon />
+                </CandidateCard>
+
+                <CandidateCard
+                  name="Current Baseline"
+                  summary="The existing generic server symbol for comparison against the new directions."
+                >
+                  <BaselineServerVisual />
+                </CandidateCard>
+              </div>
+
+              <Separator />
+
+              <div>
+                <p className="mb-4 text-xs text-muted-foreground">
+                  Lucide React baseline sizes
+                </p>
+                <div className="flex flex-wrap items-end gap-4">
+                  {(
+                    [
+                      ["14px", 14],
+                      ["16px", 16],
+                      ["20px", 20],
+                      ["24px", 24],
+                    ] as const
+                  ).map(([label, size]) => (
+                    <div key={label} className="flex flex-col items-center gap-1">
+                      <div className="flex items-center gap-2 text-foreground">
+                        <Info size={size} />
+                        <TriangleAlert size={size} />
+                        <CircleX size={size} />
+                        <Check size={size} />
+                        <Layers size={size} />
+                        <FileCode2 size={size} />
+                      </div>
+                      <span className="font-mono text-xs text-muted-foreground">
+                        {label}
+                      </span>
                     </div>
-                    <span className="font-mono text-xs text-muted-foreground">
-                      {label}
-                    </span>
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
             </TabsContent>
 

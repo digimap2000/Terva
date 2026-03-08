@@ -1,7 +1,12 @@
 name: "Roby Robot"
 description: "New Terva project."
-project_type: "device_bridge"
+mcp_transports: MCP_TRANSPORT_STREAMABLE_HTTP
+product_connector: PRODUCT_CONNECTOR_HTTP
 
+product_http {
+  version: "1.1"
+  tls_enabled: false
+}
 mcp_server {
   name: "Roby Robot"
   version: "1.0.1"

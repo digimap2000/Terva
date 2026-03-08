@@ -16,6 +16,16 @@ enum class backend_type {
   localhost_http_json,
 };
 
+enum class mcp_transport {
+  streamable_http,
+  stdio,
+};
+
+enum class product_connector {
+  http,
+  uart,
+};
+
 enum class http_method {
   get,
   post,
@@ -47,6 +57,18 @@ struct mcp_server_definition final {
   std::optional<std::string> description;
   std::optional<std::string> website_url;
   std::optional<std::string> instructions;
+};
+
+struct product_http_settings final {
+  std::optional<std::string> version;
+  bool tls_enabled{false};
+  std::map<std::string, std::string, std::less<>> mandatory_headers;
+};
+
+struct product_uart_settings final {
+  std::optional<int> baud_rate;
+  std::optional<std::string> port;
+  std::optional<std::string> framing;
 };
 
 struct backend_definition final {
@@ -124,8 +146,11 @@ struct capability_definition final {
 struct project_definition final {
   std::string name;
   std::optional<std::string> description;
-  std::optional<std::string> project_type;
   mcp_server_definition mcp_server;
+  std::vector<mcp_transport> mcp_transports;
+  std::optional<product_connector> product_connector;
+  product_http_settings product_http;
+  product_uart_settings product_uart;
   logging_options logging;
   std::vector<backend_definition> backends;
   std::vector<capability_definition> capabilities;
@@ -138,11 +163,15 @@ struct validation_issue final {
 };
 
 [[nodiscard]] std::string_view to_string(backend_type value) noexcept;
+[[nodiscard]] std::string_view to_string(mcp_transport value) noexcept;
+[[nodiscard]] std::string_view to_string(product_connector value) noexcept;
 [[nodiscard]] std::string_view to_string(http_method value) noexcept;
 [[nodiscard]] std::string_view to_string(output_source value) noexcept;
 [[nodiscard]] std::string_view to_string(output_transform value) noexcept;
 
 [[nodiscard]] std::optional<backend_type> parse_backend_type(std::string_view value) noexcept;
+[[nodiscard]] std::optional<mcp_transport> parse_mcp_transport(std::string_view value) noexcept;
+[[nodiscard]] std::optional<product_connector> parse_product_connector(std::string_view value) noexcept;
 [[nodiscard]] std::optional<http_method> parse_http_method(std::string_view value) noexcept;
 [[nodiscard]] std::optional<output_source> parse_output_source(std::string_view value) noexcept;
 [[nodiscard]] std::optional<output_transform> parse_output_transform(std::string_view value) noexcept;
