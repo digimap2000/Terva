@@ -27,3 +27,4 @@ export const activities: ActivityItem[] = [
 ];
 
 export const projectActivity = activities.find((item) => item.to === "/project")!;
+export const behaviourActivity = activities.find((item) => item.to === "/behaviour")!;
