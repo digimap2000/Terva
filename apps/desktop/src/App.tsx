@@ -4,7 +4,9 @@ import { StatusBar } from "@/components/layout/StatusBar";
 import { ZoomIndicator } from "@/components/layout/ZoomIndicator";
 import { Auth } from "@/pages/Auth";
 import { Backends } from "@/pages/Backends";
+import { Experimental } from "@/pages/Experimental";
 import { Generators } from "@/pages/Generators";
+import { Inspector } from "@/pages/Inspector";
 import { Project } from "@/pages/Project";
 import { Server } from "@/pages/Server";
 import { ThemeReference } from "@/pages/ThemeReference";
@@ -85,6 +87,8 @@ function Workspace({
             />
             <Route path="/behaviour" element={<Generators project={project} />} />
             <Route path="/backends" element={<Backends project={project} />} />
+            <Route path="/experimental" element={<Experimental project={project} />} />
+            <Route path="/inspector" element={<Inspector project={project} />} />
             <Route path="/auth" element={<Auth />} />
             <Route
               path="/server"

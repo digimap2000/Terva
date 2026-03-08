@@ -1,39 +1,39 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { BadgeInfo, LockKeyhole, ShieldCheck, UserRoundCheck } from "lucide-react";
+import { BadgeInfo, Network, RadioTower, Sparkles } from "lucide-react";
 import { WorkbenchShell } from "@/components/layout/WorkbenchShell";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { authActivity } from "@/lib/activity";
+import { experimentalActivity } from "@/lib/activity";
+import type { ProjectDocument } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 
-type AuthTab = "summary" | "policy" | "origin";
+type ExperimentalTab = "summary" | "configuration" | "notes";
 type DiagnosticTab = "info" | "warnings" | "errors";
 
-interface AuthFeature {
+interface ExperimentalFeature {
   id: string;
   label: string;
   summary: string;
   description: string;
+  status: string;
 }
 
-const authFeatures: AuthFeature[] = [
+interface ExperimentalProps {
+  project: ProjectDocument;
+}
+
+const features: ExperimentalFeature[] = [
   {
-    id: "client-authentication",
-    label: "Client Authentication",
-    summary: "Define how clients authenticate with the MCP server.",
+    id: "mdns-advertisement",
+    label: "mDNS Advertisement",
+    summary: "Advertise the running MCP server on the local network for discovery.",
     description:
-      "This surface will control how the linked MCP server authenticates clients and what trust model the active project adopts.",
-  },
-  {
-    id: "local-access-policy",
-    label: "Local Access Policy",
-    summary: "Shape local trust and origin policy for the server surface.",
-    description:
-      "This surface will define local-only access expectations, origin policy, and trust boundaries for the server host.",
+      "This feature will configure local network advertisement of the active MCP server so compatible clients can discover it without manual endpoint entry.",
+    status: "Planned",
   },
 ];
 
-function AuthField({
+function ExperimentalField({
   label,
   description,
   children,
@@ -53,12 +53,12 @@ function AuthField({
   );
 }
 
-function AuthItem({
+function FeatureMenuItem({
   feature,
   selected,
   onSelect,
 }: {
-  feature: AuthFeature;
+  feature: ExperimentalFeature;
   selected: boolean;
   onSelect: () => void;
 }) {
@@ -74,48 +74,51 @@ function AuthItem({
       )}
     >
       <div className="text-sm font-medium">{feature.label}</div>
-      <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">{feature.summary}</div>
+      <div className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+        {feature.summary}
+      </div>
     </button>
   );
 }
 
-export function Auth() {
-  const [selectedId, setSelectedId] = useState(authFeatures[0]?.id ?? "");
-  const [activeTab, setActiveTab] = useState<AuthTab>("summary");
+export function Experimental({ project }: ExperimentalProps) {
+  const [selectedId, setSelectedId] = useState(features[0]?.id ?? "");
+  const [activeTab, setActiveTab] = useState<ExperimentalTab>("summary");
   const [diagnosticTab, setDiagnosticTab] = useState<DiagnosticTab>("info");
 
   useEffect(() => {
-    const firstFeature = authFeatures[0];
+    const firstFeature = features[0];
     if (!firstFeature) {
       setSelectedId("");
       return;
     }
-    const stillExists = authFeatures.some((feature) => feature.id === selectedId);
+
+    const stillExists = features.some((feature) => feature.id === selectedId);
     if (!selectedId || !stillExists) {
       setSelectedId(firstFeature.id);
     }
   }, [selectedId]);
 
   const selectedFeature = useMemo(() => {
-    return authFeatures.find((feature) => feature.id === selectedId) ?? authFeatures[0] ?? null;
+    return features.find((feature) => feature.id === selectedId) ?? features[0] ?? null;
   }, [selectedId]);
 
   return (
     <WorkbenchShell
-      sidebarStorageKey="terva-auth-sidebar-v1"
-      sidebarTitle={authActivity.label}
-      sidebarDescription="Authentication and local trust policy for the linked MCP server."
-      sidebarIcon={authActivity.icon}
+      sidebarStorageKey="terva-experimental-sidebar-v1"
+      sidebarTitle={experimentalActivity.label}
+      sidebarDescription="Emerging MCP features we may enable behind the active project."
+      sidebarIcon={experimentalActivity.icon}
       sidebarFooter={
         <div className="text-xs text-muted-foreground">
-          {authFeatures.length} auth surface{authFeatures.length === 1 ? "" : "s"} planned
+          {features.length} experimental feature{features.length === 1 ? "" : "s"} listed
         </div>
       }
       sidebarContent={
         <ScrollArea className="flex-1">
           <div className="space-y-1 px-2 py-2">
-            {authFeatures.map((feature) => (
-              <AuthItem
+            {features.map((feature) => (
+              <FeatureMenuItem
                 key={feature.id}
                 feature={feature}
                 selected={selectedFeature?.id === feature.id}
@@ -142,9 +145,9 @@ export function Auth() {
 
           <TabsContent value="info" className="min-h-0 flex-1 overflow-auto pt-6">
             <div className="space-y-0">
-              <AuthField
-                label="Selected Surface"
-                description="Current authentication area in focus."
+              <ExperimentalField
+                label="Feature Focus"
+                description="Experimental feature currently selected in the sidebar."
               >
                 {selectedFeature ? (
                   <div className="space-y-2 text-sm">
@@ -153,38 +156,47 @@ export function Auth() {
                   </div>
                 ) : (
                   <div className="text-sm text-muted-foreground">
-                    Select an auth surface from the sidebar to inspect it here.
+                    Select an experimental feature to inspect it here.
                   </div>
                 )}
-              </AuthField>
+              </ExperimentalField>
+
+              <ExperimentalField
+                label="Project Context"
+                description="Active project that will ultimately own this capability."
+              >
+                <div className="text-sm text-muted-foreground">
+                  {project.display_name} can opt into selected experimental MCP server features here.
+                </div>
+              </ExperimentalField>
             </div>
           </TabsContent>
 
           <TabsContent value="warnings" className="min-h-0 flex-1 overflow-auto pt-6">
             <div className="space-y-0">
-              <AuthField
+              <ExperimentalField
                 label="Warnings"
-                description="Advisory findings for authentication and trust policy."
+                description="Advisory findings or cautions for the selected feature."
               >
                 <div className="text-sm leading-6 text-muted-foreground">
-                  Auth warnings are not surfaced yet. This panel is reserved for insecure policy,
-                  incomplete configuration, and risky local exposure.
+                  Experimental-feature warnings are not surfaced yet. This panel is reserved for
+                  rollout cautions, partial support notes, and interoperability concerns.
                 </div>
-              </AuthField>
+              </ExperimentalField>
             </div>
           </TabsContent>
 
           <TabsContent value="errors" className="min-h-0 flex-1 overflow-auto pt-6">
             <div className="space-y-0">
-              <AuthField
+              <ExperimentalField
                 label="Errors"
-                description="Blocking authentication and access policy issues."
+                description="Blocking issues related to the selected feature."
               >
                 <div className="text-sm leading-6 text-muted-foreground">
-                  Auth errors are not surfaced yet. This panel will carry invalid auth state,
-                  conflicting policy, and broken server security configuration.
+                  Experimental-feature errors are not surfaced yet. This panel will carry
+                  invalid configuration, unavailable platform support, or runtime conflicts.
                 </div>
-              </AuthField>
+              </ExperimentalField>
             </div>
           </TabsContent>
         </Tabs>
@@ -197,101 +209,112 @@ export function Auth() {
         selectedFeature ? (
           <Tabs
             value={activeTab}
-            onValueChange={(value) => setActiveTab(value as AuthTab)}
+            onValueChange={(value) => setActiveTab(value as ExperimentalTab)}
             className="flex h-full min-h-0 flex-col"
           >
             <TabsList variant="line" className="border-b pb-0">
               <TabsTrigger value="summary">Summary</TabsTrigger>
-              <TabsTrigger value="policy">Policy</TabsTrigger>
-              <TabsTrigger value="origin">Origin</TabsTrigger>
+              <TabsTrigger value="configuration">Configuration</TabsTrigger>
+              <TabsTrigger value="notes">Notes</TabsTrigger>
             </TabsList>
 
             <TabsContent value="summary" className="min-h-0 flex-1 overflow-auto pt-6">
               <div className="space-y-6">
                 <p className="text-sm leading-6 text-muted-foreground">
-                  Define how the linked MCP server should authenticate clients and apply local
-                  access rules for the active project.
+                  Experimental features let the project opt into emerging MCP server capabilities
+                  without blurring the core product model.
                 </p>
 
                 <div className="space-y-0">
-                  <AuthField
-                    label="Authentication Surface"
-                    description="Current auth area being configured."
+                  <ExperimentalField
+                    label="Feature"
+                    description="Experimental MCP server feature currently in focus."
                   >
                     <div className="inline-flex items-center gap-2 text-sm">
-                      <LockKeyhole size={15} className="text-muted-foreground" />
+                      <Sparkles size={15} className="text-muted-foreground" />
                       <span className="font-medium">{selectedFeature.label}</span>
                     </div>
-                  </AuthField>
-                  <AuthField
+                  </ExperimentalField>
+
+                  <ExperimentalField
                     label="Intent"
-                    description="What this auth surface is for."
+                    description="What this feature is intended to add to the MCP server."
                   >
                     <div className="text-sm leading-6 text-muted-foreground">
                       {selectedFeature.description}
                     </div>
-                  </AuthField>
+                  </ExperimentalField>
+
+                  <ExperimentalField
+                    label="Status"
+                    description="Current level of product support for this feature."
+                  >
+                    <div className="text-sm font-medium">{selectedFeature.status}</div>
+                  </ExperimentalField>
                 </div>
               </div>
             </TabsContent>
 
-            <TabsContent value="policy" className="min-h-0 flex-1 overflow-auto pt-6">
+            <TabsContent value="configuration" className="min-h-0 flex-1 overflow-auto pt-6">
               <div className="space-y-6">
                 <p className="text-sm leading-6 text-muted-foreground">
-                  This tab will hold the active project’s authentication and trust configuration.
+                  This will become the configuration surface for the selected experimental feature.
+                  For now it establishes the exact shape of the first feature we intend to support.
                 </p>
 
                 <div className="space-y-0">
-                  <AuthField
-                    label="Authentication Policy"
-                    description="How clients prove identity to the linked server."
+                  <ExperimentalField
+                    label="mDNS Advertisement"
+                    description="Local network discovery for the running MCP server."
                   >
                     <div className="space-y-3 text-sm">
                       <div className="inline-flex items-center gap-2">
-                        <UserRoundCheck size={15} className="text-muted-foreground" />
-                        <span className="font-medium">No auth controls are wired yet</span>
+                        <RadioTower size={15} className="text-muted-foreground" />
+                        <span className="font-medium">Advertise the active Streamable HTTP endpoint</span>
                       </div>
                       <div className="text-muted-foreground">
-                        This space is reserved for server-side auth options, trust modes, and
-                        local-client policy.
+                        Configuration controls are not implemented yet. This tab is reserved for
+                        enabling advertisement, controlling the published service name, and shaping
+                        any local discovery metadata we decide to expose.
                       </div>
                     </div>
-                  </AuthField>
+                  </ExperimentalField>
                 </div>
               </div>
             </TabsContent>
 
-            <TabsContent value="origin" className="min-h-0 flex-1 overflow-auto pt-6">
+            <TabsContent value="notes" className="min-h-0 flex-1 overflow-auto pt-6">
               <div className="space-y-6">
                 <p className="text-sm leading-6 text-muted-foreground">
-                  This tab will shape origin policy and local safety controls for the server host.
+                  This space is reserved for implementation notes, protocol caveats, and rollout
+                  guidance for each experimental server feature.
                 </p>
 
                 <div className="space-y-0">
-                  <AuthField
-                    label="Origin Policy"
-                    description="Control which local clients and origins are allowed."
-                  >
-                    <div className="inline-flex items-start gap-2 text-sm">
-                      <ShieldCheck size={15} className="mt-0.5 shrink-0 text-muted-foreground" />
-                      <div className="text-muted-foreground">
-                        Origin policy controls are not implemented yet. This tab is reserved for
-                        local trust rules and safety boundaries.
-                      </div>
-                    </div>
-                  </AuthField>
-                  <AuthField
-                    label="Notes"
-                    description="Guidance for future auth configuration."
+                  <ExperimentalField
+                    label="Current Direction"
+                    description="What we know about the selected feature so far."
                   >
                     <div className="inline-flex items-start gap-2 text-sm">
                       <BadgeInfo size={15} className="mt-0.5 shrink-0 text-muted-foreground" />
                       <div className="text-muted-foreground">
-                        Authentication behavior belongs to the core-linked server runtime, not the
-                        transport host shell.
+                        The first experimental feature is mDNS advertisement of the MCP server so
+                        local clients can discover the running endpoint on the network.
                       </div>
                     </div>
-                  </AuthField>
+                  </ExperimentalField>
+
+                  <ExperimentalField
+                    label="Transport Scope"
+                    description="Where this experimental feature sits in the product architecture."
+                  >
+                    <div className="inline-flex items-center gap-2 text-sm">
+                      <Network size={15} className="text-muted-foreground" />
+                      <span className="text-muted-foreground">
+                        Applies to the linked core’s Streamable HTTP server surface.
+                      </span>
+                    </div>
+                  </ExperimentalField>
                 </div>
               </div>
             </TabsContent>
@@ -299,9 +322,9 @@ export function Auth() {
         ) : (
           <div className="flex h-full items-center justify-center">
             <div className="max-w-xl text-center">
-              <div className="text-sm font-medium">No auth surface selected</div>
+              <div className="text-sm font-medium">No experimental feature selected</div>
               <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                Choose an auth item from the sidebar to inspect and configure it here.
+                Choose a feature from the sidebar to inspect and configure it here.
               </p>
             </div>
           </div>

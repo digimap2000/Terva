@@ -1,12 +1,11 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   ChevronDown,
   EllipsisVertical,
   FileCode2,
-  PanelLeftClose,
-  PanelLeftOpen,
 } from "lucide-react";
 import { behaviourActivity } from "@/lib/activity";
+import { WorkbenchShell } from "@/components/layout/WorkbenchShell";
 import type { InspectionCapability, ProjectDocument } from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 import {
@@ -15,11 +14,6 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { CapLabel } from "@/components/ui/cap-label";
-import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-} from "@/components/ui/resizable";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -41,8 +35,6 @@ interface FieldHelp {
 
 const actionButtonClass =
   "flex size-5 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground";
-const SIDEBAR_STORAGE_KEY = "terva-workbench-sidebar-v1";
-const DEFAULT_SIDEBAR_PCT = "18%";
 
 const tabHelp: Record<BehaviourTab, FieldHelp> = {
   summary: {
@@ -81,17 +73,6 @@ const tabHelp: Record<BehaviourTab, FieldHelp> = {
     example: "GET /power until system == on or verification fails.",
   },
 };
-
-function getSavedSidebarSize(): string {
-  const stored = localStorage.getItem(SIDEBAR_STORAGE_KEY);
-  if (stored) {
-    const parsed = parseFloat(stored);
-    if (!Number.isNaN(parsed) && parsed >= 10 && parsed <= 30) {
-      return `${parsed}%`;
-    }
-  }
-  return DEFAULT_SIDEBAR_PCT;
-}
 
 function capabilitySummary(capability: InspectionCapability) {
   return `${capability.actions.length} action${
@@ -194,11 +175,8 @@ function TabIntro({ text }: { text: string }) {
 }
 
 export function Generators({ project }: { project: ProjectDocument }) {
-  const BehaviourIcon = behaviourActivity.icon;
   const capabilities = project.inspection?.capabilities ?? [];
   const [selectedId, setSelectedId] = useState(capabilities[0]?.id ?? "");
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [sidebarSize] = useState(getSavedSidebarSize);
   const [activeTab, setActiveTab] = useState<BehaviourTab>("summary");
   const [diagnosticTab, setDiagnosticTab] = useState<DiagnosticTab>("info");
   const [inspectedTab, setInspectedTab] = useState<BehaviourTab>("summary");
@@ -238,88 +216,153 @@ export function Generators({ project }: { project: ProjectDocument }) {
     return capabilities.find((item) => item.id === selectedId) ?? capabilities[0] ?? null;
   }, [capabilities, selectedId]);
 
-  const help = tabHelp[inspectedTab];
-
-  const handleLayoutChanged = useCallback((layout: Record<string, number>) => {
-    const size = layout["sidebar"];
-    if (size != null) {
-      localStorage.setItem(SIDEBAR_STORAGE_KEY, String(size));
-    }
-  }, []);
-
   return (
-    <ResizablePanelGroup
-      orientation="horizontal"
-      onLayoutChanged={handleLayoutChanged}
-      className="h-full"
-    >
-      <ResizablePanel
-        id="sidebar"
-        defaultSize={sidebarSize}
-        minSize="10%"
-        maxSize="30%"
-        className={cn("transition-[flex] duration-200 ease-linear", !sidebarOpen && "!flex-[0]")}
-      >
-        <nav className="flex h-full flex-col overflow-hidden bg-sidebar text-sidebar-foreground">
-          <div className="flex flex-col gap-0 p-3">
-            <span className="text-sm font-medium">Behaviour</span>
-            <span className="text-xs text-muted-foreground">
-              Capabilities grouped into the categories currently defined by this project.
-            </span>
+    <WorkbenchShell
+      sidebarStorageKey="terva-behaviour-sidebar-v1"
+      sidebarTitle={behaviourActivity.label}
+      sidebarDescription="Capabilities grouped into the categories currently defined by this project."
+      sidebarIcon={behaviourActivity.icon}
+      sidebarFooter={
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <FileCode2 size={14} />
+          {project.capability_count} capabilities across {categories.length} categories
+        </div>
+      }
+      sidebarContent={
+        <ScrollArea className="flex-1">
+          <div className="space-y-1 px-1 py-2">
+            {categories.map((category) => (
+              <Collapsible key={category.id} defaultOpen className="group/collapsible">
+                <SectionHeading title={category.label} />
+                <CollapsibleContent>
+                  <div className="ml-3 space-y-0.5 border-l pl-2">
+                    {category.capabilities.map((capability) => (
+                      <MenuItem
+                        key={capability.id}
+                        label={capability.tool_name}
+                        summary={capabilitySummary(capability)}
+                        isActive={selectedCapability?.id === capability.id}
+                        onClick={() => {
+                          setSelectedId(capability.id);
+                          setActiveTab("summary");
+                          setInspectedTab("summary");
+                        }}
+                      />
+                    ))}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+            ))}
           </div>
-          <ScrollArea className="flex-1">
-            <div className="space-y-1 px-1">
-              {categories.map((category) => (
-                <Collapsible key={category.id} defaultOpen className="group/collapsible">
-                  <SectionHeading title={category.label} />
-                  <CollapsibleContent>
-                    <div className="ml-3 space-y-0.5 border-l pl-2">
-                      {category.capabilities.map((capability) => (
-                        <MenuItem
-                          key={capability.id}
-                          label={capability.tool_name}
-                          summary={capabilitySummary(capability)}
-                          isActive={selectedCapability?.id === capability.id}
-                          onClick={() => {
-                            setSelectedId(capability.id);
-                            setActiveTab("summary");
-                            setInspectedTab("summary");
-                          }}
-                        />
-                      ))}
+        </ScrollArea>
+      }
+      bottomContent={
+        <Tabs
+          value={diagnosticTab}
+          onValueChange={(value) => setDiagnosticTab(value as DiagnosticTab)}
+          className="flex h-full min-h-0 flex-col"
+        >
+          <TabsList variant="line" className="border-b pb-0">
+            <TabsTrigger value="info">Info</TabsTrigger>
+            <TabsTrigger value="warnings">Warnings</TabsTrigger>
+            <TabsTrigger value="errors">Errors</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="info" className="min-h-0 flex-1 overflow-auto pt-6">
+            <div className="space-y-6">
+              <p className="text-sm leading-6 text-muted-foreground">
+                {tabHelp[inspectedTab].summary} {tabHelp[inspectedTab].explanation}
+              </p>
+
+              <div className="space-y-0">
+                <CapabilityField
+                  label={tabHelp[inspectedTab].label}
+                  description="Current editor focus within the selected behaviour."
+                >
+                  <div className="space-y-2">
+                    <div className="text-sm font-medium">{tabHelp[inspectedTab].summary}</div>
+                    <div className="text-sm leading-6 text-muted-foreground">
+                      {tabHelp[inspectedTab].explanation}
                     </div>
-                  </CollapsibleContent>
-                </Collapsible>
-              ))}
+                    <div className="rounded-lg border border-border/60 bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+                      Example: {tabHelp[inspectedTab].example}
+                    </div>
+                  </div>
+                </CapabilityField>
+
+                <CapabilityField
+                  label="Selected Behaviour"
+                  description="Stable reference for the capability currently being configured."
+                >
+                  {selectedCapability ? (
+                    <div className="space-y-1 text-sm">
+                      <div className="font-medium">{selectedCapability.tool_name}</div>
+                      <div className="text-muted-foreground">
+                        {selectedCapability.description || "No description defined."}
+                      </div>
+                      <div className="text-muted-foreground">
+                        {selectedCapability.actions.length} backend action
+                        {selectedCapability.actions.length === 1 ? "" : "s"} surfaced.
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="text-sm text-muted-foreground">
+                      Select a behaviour to inspect it here.
+                    </div>
+                  )}
+                </CapabilityField>
+
+                <CapabilityField
+                  label="Document Context"
+                  description="Project-level context for the active capability."
+                >
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <FileCode2 size={14} />
+                    {project.capability_count} capabilities across {project.backend_count} backends
+                  </div>
+                </CapabilityField>
+              </div>
             </div>
-          </ScrollArea>
-        </nav>
-      </ResizablePanel>
+          </TabsContent>
 
-      <ResizableHandle />
-
-      <ResizablePanel id="content" defaultSize="82%">
-        <div className="flex h-full flex-col overflow-hidden p-6">
-          <div className="flex w-full flex-1 flex-col gap-6 overflow-hidden">
-            <div className="flex h-10 items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setSidebarOpen((value) => !value)}
-                className="flex size-9 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+          <TabsContent value="warnings" className="min-h-0 flex-1 overflow-auto pt-6">
+            <div className="space-y-0">
+              <CapabilityField
+                label="Warnings"
+                description="Non-blocking findings derived from validation of the active capability."
               >
-                {sidebarOpen ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}
-              </button>
-              <div className="flex size-9 items-center justify-center rounded-md text-muted-foreground">
-                <BehaviourIcon size={17} />
-              </div>
-              <div className="text-sm font-medium text-muted-foreground">
-                {behaviourActivity.label}
-              </div>
+                <div className="text-sm leading-6 text-muted-foreground">
+                  Capability-scoped warnings are not surfaced yet. This panel is reserved
+                  for advisory findings, suspicious configuration, and incomplete modelling
+                  details.
+                </div>
+              </CapabilityField>
             </div>
+          </TabsContent>
 
-            <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1">
-              <ResizablePanel id="behaviour-main" defaultSize={72} minSize={42}>
+          <TabsContent value="errors" className="min-h-0 flex-1 overflow-auto pt-6">
+            <div className="space-y-0">
+              <CapabilityField
+                label="Errors"
+                description="Blocking issues derived from validation of the active capability."
+              >
+                <div className="text-sm leading-6 text-muted-foreground">
+                  Capability-scoped errors are not surfaced yet. This panel will become
+                  the place for broken references, invalid action definitions, and other
+                  issues that prevent the behaviour from running safely.
+                </div>
+              </CapabilityField>
+            </div>
+          </TabsContent>
+        </Tabs>
+      }
+      sidebarDefaultSize="18%"
+      sidebarMinSize="10%"
+      sidebarMaxSize="30%"
+      contentClassName="p-6"
+      mainContent={
+        <div className="flex h-full flex-col overflow-hidden">
+          <div className="min-h-0 flex-1">
                 {selectedCapability ? (
                   <Tabs
                     value={activeTab}
@@ -536,114 +579,9 @@ export function Generators({ project }: { project: ProjectDocument }) {
                     </div>
                   </div>
                 )}
-              </ResizablePanel>
-
-              <ResizableHandle withHandle />
-
-              <ResizablePanel id="behaviour-diagnostics" defaultSize={28} minSize={18}>
-                <Tabs
-                  value={diagnosticTab}
-                  onValueChange={(value) => setDiagnosticTab(value as DiagnosticTab)}
-                  className="flex h-full min-h-0 flex-col"
-                >
-                  <TabsList variant="line" className="border-b pb-0">
-                    <TabsTrigger value="info">Info</TabsTrigger>
-                    <TabsTrigger value="warnings">Warnings</TabsTrigger>
-                    <TabsTrigger value="errors">Errors</TabsTrigger>
-                  </TabsList>
-
-                  <TabsContent value="info" className="min-h-0 flex-1 overflow-auto pt-6">
-                    <div className="space-y-6">
-                      <p className="text-sm leading-6 text-muted-foreground">
-                        {help.summary} {help.explanation}
-                      </p>
-
-                      <div className="space-y-0">
-                        <CapabilityField
-                          label={help.label}
-                          description="Current editor focus within the selected behaviour."
-                        >
-                          <div className="space-y-2">
-                            <div className="text-sm font-medium">{help.summary}</div>
-                            <div className="text-sm leading-6 text-muted-foreground">
-                              {help.explanation}
-                            </div>
-                            <div className="rounded-lg border border-border/60 bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-                              Example: {help.example}
-                            </div>
-                          </div>
-                        </CapabilityField>
-
-                        <CapabilityField
-                          label="Selected Behaviour"
-                          description="Stable reference for the capability currently being configured."
-                        >
-                          {selectedCapability ? (
-                            <div className="space-y-1 text-sm">
-                              <div className="font-medium">{selectedCapability.tool_name}</div>
-                              <div className="text-muted-foreground">
-                                {selectedCapability.description || "No description defined."}
-                              </div>
-                              <div className="text-muted-foreground">
-                                {selectedCapability.actions.length} backend action
-                                {selectedCapability.actions.length === 1 ? "" : "s"} surfaced.
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="text-sm text-muted-foreground">
-                              Select a behaviour to inspect it here.
-                            </div>
-                          )}
-                        </CapabilityField>
-
-                        <CapabilityField
-                          label="Document Context"
-                          description="Project-level context for the active capability."
-                        >
-                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                            <FileCode2 size={14} />
-                            {project.capability_count} capabilities across {project.backend_count} backends
-                          </div>
-                        </CapabilityField>
-                      </div>
-                    </div>
-                  </TabsContent>
-
-                  <TabsContent value="warnings" className="min-h-0 flex-1 overflow-auto pt-6">
-                    <div className="space-y-0">
-                      <CapabilityField
-                        label="Warnings"
-                        description="Non-blocking findings derived from validation of the active capability."
-                      >
-                        <div className="text-sm leading-6 text-muted-foreground">
-                          Capability-scoped warnings are not surfaced yet. This panel is reserved
-                          for advisory findings, suspicious configuration, and incomplete modelling
-                          details.
-                        </div>
-                      </CapabilityField>
-                    </div>
-                  </TabsContent>
-
-                  <TabsContent value="errors" className="min-h-0 flex-1 overflow-auto pt-6">
-                    <div className="space-y-0">
-                      <CapabilityField
-                        label="Errors"
-                        description="Blocking issues derived from validation of the active capability."
-                      >
-                        <div className="text-sm leading-6 text-muted-foreground">
-                          Capability-scoped errors are not surfaced yet. This panel will become
-                          the place for broken references, invalid action definitions, and other
-                          issues that prevent the behaviour from running safely.
-                        </div>
-                      </CapabilityField>
-                    </div>
-                  </TabsContent>
-                </Tabs>
-              </ResizablePanel>
-            </ResizablePanelGroup>
           </div>
         </div>
-      </ResizablePanel>
-    </ResizablePanelGroup>
+      }
+    />
   );
 }

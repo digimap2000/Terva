@@ -15,12 +15,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-} from "@/components/ui/resizable";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { WorkbenchShell } from "@/components/layout/WorkbenchShell";
 import { projectActivity } from "@/lib/activity";
 import type { ProjectDocument, ProjectMetadataUpdate } from "@/lib/tauri";
 
@@ -170,8 +166,8 @@ function ProjectInfographic({
   const visibleName = form.mcp_title.trim() || form.mcp_name.trim() || "Unnamed MCP Server";
 
   return (
-    <div className="flex h-full flex-col items-center justify-center border-l border-border/70 px-8">
-      <div className="relative flex w-full max-w-md flex-col items-center">
+    <div className="flex h-full flex-col items-center justify-center px-8">
+      <div className="relative flex w-full max-w-sm flex-col items-center">
         <div className="absolute inset-x-10 top-14 h-40 rounded-full bg-linear-to-br from-primary/18 via-accent/12 to-primary/6 blur-3xl" />
         <div className="relative flex size-52 items-center justify-center">
           <div className="absolute inset-0 rounded-full border border-primary/20 bg-linear-to-br from-primary/10 via-background to-accent/10 shadow-[0_30px_80px_-35px_rgba(18,112,255,0.45)]" />
@@ -201,7 +197,6 @@ function ProjectInfographic({
 }
 
 export function Project({ project, loading, onSaveProjectMetadata }: ProjectProps) {
-  const ProjectIcon = projectActivity.icon;
   const [activeTab, setActiveTab] = useState("identity");
   const [form, setForm] = useState<ProjectFormState>(() => toFormState(project));
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -259,27 +254,76 @@ export function Project({ project, loading, onSaveProjectMetadata }: ProjectProp
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden p-6">
-      <div className="flex w-full flex-1 flex-col gap-6 overflow-hidden">
-        <div className="flex h-10 items-center gap-2">
-          <div className="flex size-9 items-center justify-center rounded-md text-muted-foreground">
-            <ProjectIcon size={17} />
+    <WorkbenchShell
+      sidebarStorageKey="terva-project-sidebar-v1"
+      sidebarTitle={projectActivity.label}
+      sidebarDescription="Top-level MCP identity and document metadata for the active project."
+      sidebarIcon={projectActivity.icon}
+      sidebarContent={<ProjectInfographic form={form} />}
+      sidebarFooter={
+        <div className="space-y-1 text-xs text-muted-foreground">
+          <div>{form.project_type || "No project type set"}</div>
+          <div>{form.mcp_version ? `Server ${form.mcp_version}` : "No server version set"}</div>
+        </div>
+      }
+      bottomContent={
+        <div className="flex h-full flex-col border-t bg-secondary/10">
+          <div className="border-b px-4 py-3">
+            <div className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
+              Field Reference
+            </div>
+            <div className="mt-2 text-sm font-medium text-foreground">{help.label}</div>
           </div>
-          <div className="text-sm font-medium text-muted-foreground">
-            {projectActivity.label}
+
+          <div className="min-h-0 flex-1 overflow-auto px-4 py-4">
+            <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+              <div className="space-y-4">
+                <div>
+                  <div className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
+                    What This Field Is For
+                  </div>
+                  <p className="mt-2 text-sm leading-7 text-muted-foreground">
+                    {help.summary}
+                  </p>
+                </div>
+
+                <div>
+                  <div className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
+                    Guidance
+                  </div>
+                  <p className="mt-2 text-sm leading-7 text-muted-foreground">
+                    {help.explanation}
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <div className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
+                  Example
+                </div>
+                <div className="mt-2 rounded-xl border bg-background/70 p-4">
+                  <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-6 text-muted-foreground">
+                    {help.example}
+                  </pre>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
+      }
+      sidebarDefaultSize="28%"
+      sidebarMinSize="18%"
+      sidebarMaxSize="40%"
+      contentClassName="p-6"
+      mainContent={
+        <div className="flex h-full flex-col overflow-hidden">
+          {saveError ? (
+            <div className="mb-6 rounded-xl border border-destructive/30 bg-destructive/8 px-4 py-3 text-sm text-destructive">
+              {saveError}
+            </div>
+          ) : null}
 
-        {saveError ? (
-          <div className="rounded-xl border border-destructive/30 bg-destructive/8 px-4 py-3 text-sm text-destructive">
-            {saveError}
-          </div>
-        ) : null}
-
-        <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1">
-          <ResizablePanel id="project-form" defaultSize={72} minSize={42}>
-            <ResizablePanelGroup orientation="horizontal" className="h-full">
-              <ResizablePanel id="project-editor" defaultSize={66} minSize={40}>
+          <div className="min-h-0 flex-1">
                 <Tabs
                   value={activeTab}
                   onValueChange={setActiveTab}
@@ -366,107 +410,107 @@ export function Project({ project, loading, onSaveProjectMetadata }: ProjectProp
                       </div>
 
                       <div className="space-y-0">
-                    <Field
-                      fieldId="mcp_name"
-                      label="Server Name"
-                      description="Programmatic MCP server identifier exposed in serverInfo.name."
-                      onInspect={setInspectedField}
-                    >
-                      <Input
-                        value={form.mcp_name}
-                        disabled={loading}
-                        onFocus={() => setInspectedField("mcp_name")}
-                        onChange={(event) => updateField("mcp_name", event.target.value)}
-                        placeholder="streamer-power"
-                      />
-                    </Field>
+                        <Field
+                          fieldId="mcp_name"
+                          label="Server Name"
+                          description="Programmatic MCP server identifier exposed in serverInfo.name."
+                          onInspect={setInspectedField}
+                        >
+                          <Input
+                            value={form.mcp_name}
+                            disabled={loading}
+                            onFocus={() => setInspectedField("mcp_name")}
+                            onChange={(event) => updateField("mcp_name", event.target.value)}
+                            placeholder="streamer-power"
+                          />
+                        </Field>
 
-                    <Field
-                      fieldId="mcp_version"
-                      label="Server Version"
-                      description="Version exposed in serverInfo.version."
-                      onInspect={setInspectedField}
-                    >
-                      <Input
-                        value={form.mcp_version}
-                        disabled={loading}
-                        onFocus={() => setInspectedField("mcp_version")}
-                        onChange={(event) =>
-                          updateField("mcp_version", event.target.value)
-                        }
-                        placeholder="0.1.0"
-                      />
-                    </Field>
+                        <Field
+                          fieldId="mcp_version"
+                          label="Server Version"
+                          description="Version exposed in serverInfo.version."
+                          onInspect={setInspectedField}
+                        >
+                          <Input
+                            value={form.mcp_version}
+                            disabled={loading}
+                            onFocus={() => setInspectedField("mcp_version")}
+                            onChange={(event) =>
+                              updateField("mcp_version", event.target.value)
+                            }
+                            placeholder="0.1.0"
+                          />
+                        </Field>
 
-                    <Field
-                      fieldId="mcp_title"
-                      label="Server Title"
-                      description="Optional display title for end-user MCP clients."
-                      onInspect={setInspectedField}
-                    >
-                      <Input
-                        value={form.mcp_title}
-                        disabled={loading}
-                        onFocus={() => setInspectedField("mcp_title")}
-                        onChange={(event) =>
-                          updateField("mcp_title", event.target.value)
-                        }
-                        placeholder="Streamer Power Control"
-                      />
-                    </Field>
+                        <Field
+                          fieldId="mcp_title"
+                          label="Server Title"
+                          description="Optional display title for end-user MCP clients."
+                          onInspect={setInspectedField}
+                        >
+                          <Input
+                            value={form.mcp_title}
+                            disabled={loading}
+                            onFocus={() => setInspectedField("mcp_title")}
+                            onChange={(event) =>
+                              updateField("mcp_title", event.target.value)
+                            }
+                            placeholder="Streamer Power Control"
+                          />
+                        </Field>
 
-                    <Field
-                      fieldId="mcp_website_url"
-                      label="Website URL"
-                      description="Optional website URL surfaced by the server."
-                      onInspect={setInspectedField}
-                    >
-                      <Input
-                        value={form.mcp_website_url}
-                        disabled={loading}
-                        onFocus={() => setInspectedField("mcp_website_url")}
-                        onChange={(event) =>
-                          updateField("mcp_website_url", event.target.value)
-                        }
-                        placeholder="https://example.com"
-                      />
-                    </Field>
+                        <Field
+                          fieldId="mcp_website_url"
+                          label="Website URL"
+                          description="Optional website URL surfaced by the server."
+                          onInspect={setInspectedField}
+                        >
+                          <Input
+                            value={form.mcp_website_url}
+                            disabled={loading}
+                            onFocus={() => setInspectedField("mcp_website_url")}
+                            onChange={(event) =>
+                              updateField("mcp_website_url", event.target.value)
+                            }
+                            placeholder="https://example.com"
+                          />
+                        </Field>
 
-                    <Field
-                      fieldId="mcp_description"
-                      label="Server Description"
-                      description="Optional MCP-facing description of the server."
-                      onInspect={setInspectedField}
-                    >
-                      <textarea
-                        className={textareaClassName}
-                        value={form.mcp_description}
-                        disabled={loading}
-                        onFocus={() => setInspectedField("mcp_description")}
-                        onChange={(event) =>
-                          updateField("mcp_description", event.target.value)
-                        }
-                        placeholder="Describe what this MCP server provides."
-                      />
-                    </Field>
+                        <Field
+                          fieldId="mcp_description"
+                          label="Server Description"
+                          description="Optional MCP-facing description of the server."
+                          onInspect={setInspectedField}
+                        >
+                          <textarea
+                            className={textareaClassName}
+                            value={form.mcp_description}
+                            disabled={loading}
+                            onFocus={() => setInspectedField("mcp_description")}
+                            onChange={(event) =>
+                              updateField("mcp_description", event.target.value)
+                            }
+                            placeholder="Describe what this MCP server provides."
+                          />
+                        </Field>
 
-                    <Field
-                      fieldId="mcp_instructions"
-                      label="Server Instructions"
-                      description="Optional instructions returned at initialize time to help clients use the server correctly."
-                      onInspect={setInspectedField}
-                    >
-                      <textarea
-                        className={textareaClassName}
-                        value={form.mcp_instructions}
-                        disabled={loading}
-                        onFocus={() => setInspectedField("mcp_instructions")}
-                        onChange={(event) =>
-                          updateField("mcp_instructions", event.target.value)
-                        }
-                        placeholder="Explain how a client should approach this server."
-                      />
-                    </Field>
+                        <Field
+                          fieldId="mcp_instructions"
+                          label="Server Instructions"
+                          description="Optional instructions returned at initialize time to help clients use the server correctly."
+                          onInspect={setInspectedField}
+                        >
+                          <textarea
+                            className={textareaClassName}
+                            value={form.mcp_instructions}
+                            disabled={loading}
+                            onFocus={() => setInspectedField("mcp_instructions")}
+                            onChange={(event) =>
+                              updateField("mcp_instructions", event.target.value)
+                            }
+                            placeholder="Explain how a client should approach this server."
+                          />
+                        </Field>
                       </div>
                     </div>
                   </TabsContent>
@@ -554,67 +598,9 @@ export function Project({ project, loading, onSaveProjectMetadata }: ProjectProp
                     </div>
                   </TabsContent>
                 </Tabs>
-              </ResizablePanel>
-
-              <ResizableHandle />
-
-              <ResizablePanel id="project-visual" defaultSize={34} minSize={24}>
-                <ProjectInfographic form={form} />
-              </ResizablePanel>
-            </ResizablePanelGroup>
-          </ResizablePanel>
-
-          <ResizableHandle withHandle />
-
-          <ResizablePanel id="project-help" defaultSize={28} minSize={18}>
-            <div className="flex h-full flex-col border-t bg-secondary/10">
-              <div className="border-b px-4 py-3">
-                <div className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
-                  Field Reference
-                </div>
-                <div className="mt-2 text-sm font-medium text-foreground">
-                  {help.label}
-                </div>
-              </div>
-
-              <div className="min-h-0 flex-1 overflow-auto px-4 py-4">
-                <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-                  <div className="space-y-4">
-                    <div>
-                      <div className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
-                        What This Field Is For
-                      </div>
-                      <p className="mt-2 text-sm leading-7 text-muted-foreground">
-                        {help.summary}
-                      </p>
-                    </div>
-
-                    <div>
-                      <div className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
-                        Guidance
-                      </div>
-                      <p className="mt-2 text-sm leading-7 text-muted-foreground">
-                        {help.explanation}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
-                      Example
-                    </div>
-                    <div className="mt-2 rounded-xl border bg-background/70 p-4">
-                      <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-6 text-muted-foreground">
-                        {help.example}
-                      </pre>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </ResizablePanel>
-        </ResizablePanelGroup>
-      </div>
-    </div>
+          </div>
+        </div>
+      }
+    />
   );
 }
