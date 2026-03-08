@@ -87,15 +87,12 @@ struct CoreEnvelope<T> {
 }
 
 fn decode_payload<T: DeserializeOwned>(raw: &str) -> Result<T, TervaError> {
-    let envelope: CoreEnvelope<T> = serde_json::from_str(raw).map_err(|error| {
-        TervaError::Project(format!("Failed to decode core response: {error}"))
-    })?;
+    let envelope: CoreEnvelope<T> = serde_json::from_str(raw)
+        .map_err(|error| TervaError::Project(format!("Failed to decode core response: {error}")))?;
     if !envelope.ok {
-        return Err(TervaError::Project(
-            envelope
-                .error
-                .unwrap_or_else(|| "Core call failed without an error".to_string()),
-        ));
+        return Err(TervaError::Project(envelope.error.unwrap_or_else(|| {
+            "Core call failed without an error".to_string()
+        })));
     }
     envelope
         .payload
@@ -170,6 +167,22 @@ pub struct ProjectMetadataUpdate {
     pub mcp_instructions: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NewProjectRequest {
+    pub friendly_name: String,
+    pub directory: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NewProjectPreview {
+    pub friendly_name: String,
+    pub filesystem_name: String,
+    pub file_name: String,
+    pub mcp_server_name: String,
+    pub directory: String,
+    pub target_path: String,
+}
+
 fn validate_project_extension(path: &Path) -> Result<(), TervaError> {
     let extension = path
         .extension()
@@ -184,53 +197,85 @@ fn validate_project_extension(path: &Path) -> Result<(), TervaError> {
     Ok(())
 }
 
-fn ensure_terva_extension(mut path: PathBuf) -> PathBuf {
-    let has_extension = path
-        .extension()
-        .and_then(|value| value.to_str())
-        .map(|value| value == "terva")
-        .unwrap_or(false);
-    if !has_extension {
-        path.set_extension("terva");
+fn default_projects_directory() -> PathBuf {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .map(|home| home.join("Documents").join("Terva"))
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+fn normalize_friendly_name(name: &str) -> String {
+    let collapsed = name.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.is_empty() {
+        "New Project".to_string()
+    } else {
+        collapsed
     }
-    path
 }
 
-fn title_case_file_stem(path: &Path) -> String {
-    path.file_stem()
-        .and_then(|value| value.to_str())
-        .map(|stem| {
-            stem.split(|character: char| character == '-' || character == '_' || character.is_whitespace())
-                .filter(|segment| !segment.is_empty())
-                .map(|segment| {
-                    let mut characters = segment.chars();
-                    match characters.next() {
-                        Some(first) => {
-                            let mut title = String::new();
-                            title.extend(first.to_uppercase());
-                            title.push_str(&characters.as_str().to_lowercase());
-                            title
-                        }
-                        None => String::new(),
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join(" ")
-        })
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "New Project".to_string())
+fn slugify_name(name: &str) -> String {
+    let mut slug = String::new();
+    let mut last_was_separator = false;
+
+    for character in name.chars() {
+        let next = match character {
+            'A'..='Z' => character.to_ascii_lowercase(),
+            'a'..='z' | '0'..='9' => character,
+            _ => '-',
+        };
+
+        if next == '-' {
+            if slug.is_empty() || last_was_separator {
+                continue;
+            }
+            last_was_separator = true;
+            slug.push('-');
+            continue;
+        }
+
+        last_was_separator = false;
+        slug.push(next);
+    }
+
+    let trimmed = slug.trim_matches('-').to_string();
+    if trimmed.is_empty() {
+        "new-project".to_string()
+    } else {
+        trimmed
+    }
 }
 
-fn starter_project_contents(path: &Path) -> String {
-    let project_name = title_case_file_stem(path);
+fn build_new_project_preview(friendly_name: &str, directory: Option<&str>) -> NewProjectPreview {
+    let normalized_name = normalize_friendly_name(friendly_name);
+    let filesystem_name = slugify_name(&normalized_name);
+    let mcp_server_name = slugify_name(&normalized_name);
+    let file_name = format!("{filesystem_name}.terva");
+    let directory = directory
+        .map(PathBuf::from)
+        .unwrap_or_else(default_projects_directory);
+    let target_path = directory.join(&file_name);
+
+    NewProjectPreview {
+        friendly_name: normalized_name,
+        filesystem_name,
+        file_name,
+        mcp_server_name,
+        directory: directory.display().to_string(),
+        target_path: target_path.display().to_string(),
+    }
+}
+
+fn starter_project_contents(preview: &NewProjectPreview) -> String {
+    let project_name = &preview.friendly_name;
+    let mcp_server_name = &preview.mcp_server_name;
     format!(
         r#"name: "{project_name}"
 description: "New Terva project."
 project_type: "device_bridge"
 
 mcp_server {{
-  name: "{project_name}"
-  version: "1.0.0"
+  name: "{mcp_server_name}"
+  version: "1.0.1"
   title: "{project_name}"
   description: "New Terva MCP server."
   instructions: "Use the exposed tools and resources from this Terva project."
@@ -272,7 +317,9 @@ capabilities {{
     )
 }
 
-pub async fn pick_project_document(bridge: &CoreBridge) -> Result<Option<ProjectDocument>, TervaError> {
+pub async fn pick_project_document(
+    bridge: &CoreBridge,
+) -> Result<Option<ProjectDocument>, TervaError> {
     let handle = rfd::AsyncFileDialog::new()
         .add_filter("Terva project", &["terva"])
         .pick_file()
@@ -295,32 +342,56 @@ pub fn open_project_document_at_path(
     bridge.open_document(&path)
 }
 
-pub async fn create_project_document(bridge: &CoreBridge) -> Result<Option<ProjectDocument>, TervaError> {
-    let handle = rfd::AsyncFileDialog::new()
-        .set_file_name("new-project.terva")
-        .add_filter("Terva project", &["terva"])
-        .save_file()
-        .await;
+pub fn get_new_project_preview(
+    friendly_name: String,
+    directory: Option<String>,
+) -> NewProjectPreview {
+    build_new_project_preview(&friendly_name, directory.as_deref())
+}
 
-    let Some(handle) = handle else {
-        return Ok(None);
-    };
+pub async fn pick_project_directory(directory: Option<String>) -> Option<String> {
+    let default_directory = directory
+        .map(PathBuf::from)
+        .unwrap_or_else(default_projects_directory);
 
-    let path = ensure_terva_extension(handle.path().to_path_buf());
-    let contents = starter_project_contents(&path);
+    rfd::AsyncFileDialog::new()
+        .set_directory(default_directory)
+        .pick_folder()
+        .await
+        .map(|handle| handle.path().display().to_string())
+}
+
+pub async fn create_project_document(
+    bridge: &CoreBridge,
+    request: NewProjectRequest,
+) -> Result<ProjectDocument, TervaError> {
+    let preview = build_new_project_preview(&request.friendly_name, Some(&request.directory));
+    let path = PathBuf::from(&preview.target_path);
+    let parent_directory = path.parent().unwrap_or(Path::new("."));
+
+    tokio::fs::create_dir_all(parent_directory)
+        .await
+        .map_err(|error| {
+            TervaError::Project(format!("Failed to prepare project folder: {error}"))
+        })?;
+
+    if path.exists() {
+        return Err(TervaError::Project(format!(
+            "A project already exists at {}",
+            path.display()
+        )));
+    }
+
+    let contents = starter_project_contents(&preview);
 
     tokio::fs::write(&path, contents)
         .await
         .map_err(|error| TervaError::Project(format!("Failed to create project: {error}")))?;
 
-    let document = bridge.open_document(&path)?;
-    Ok(Some(document))
+    bridge.open_document(&path)
 }
 
-pub fn summarize_recent_projects(
-    bridge: &CoreBridge,
-    paths: Vec<String>,
-) -> Vec<ProjectSummary> {
+pub fn summarize_recent_projects(bridge: &CoreBridge, paths: Vec<String>) -> Vec<ProjectSummary> {
     let mut summaries = Vec::new();
 
     for path in paths {

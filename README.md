@@ -1,4 +1,4 @@
-# Terva v1.0.0
+# Terva v1.0.2
 
 Terva is a core-first product scaffold with a single canonical in-process engine.
 

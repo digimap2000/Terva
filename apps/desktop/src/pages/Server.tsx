@@ -230,17 +230,20 @@ export function Server({
       sidebarMinSize="16%"
       sidebarMaxSize="34%"
       contentClassName="p-6"
-      mainContent={
+      mainContent={(sidebarToggle) =>
         <Tabs
           value={activeTab}
           onValueChange={(value) => setActiveTab(value as ServerTab)}
           className="flex h-full min-h-0 flex-col"
         >
-          <TabsList variant="line" className="border-b pb-0">
-            <TabsTrigger value="overview">Overview</TabsTrigger>
-            <TabsTrigger value="options">Options</TabsTrigger>
-            <TabsTrigger value="activity">Activity</TabsTrigger>
-          </TabsList>
+          <div className="flex items-center gap-3">
+            {sidebarToggle}
+            <TabsList variant="line" className="border-0 pb-0">
+              <TabsTrigger value="overview">Overview</TabsTrigger>
+              <TabsTrigger value="options">Options</TabsTrigger>
+              <TabsTrigger value="activity">Activity</TabsTrigger>
+            </TabsList>
+          </div>
 
           <TabsContent value="overview" className="min-h-0 flex-1 overflow-auto pt-6">
             <div className="space-y-6">

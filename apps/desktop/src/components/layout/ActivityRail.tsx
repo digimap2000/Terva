@@ -17,8 +17,9 @@ export function ActivityRail({
   runtimeState: _runtimeState,
 }: ActivityRailProps) {
   const { theme, toggle } = useTheme();
+  const availableWithoutProject = new Set(["/workspace", "/inspector"]);
   const renderItem = ({ to, icon: Icon, label, end }: (typeof topActivities)[number]) =>
-    documentOpen ? (
+    documentOpen || availableWithoutProject.has(to) ? (
       <NavLink
         key={to}
         to={to}

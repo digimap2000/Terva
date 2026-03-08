@@ -4,7 +4,7 @@ project_type: "device_bridge"
 
 mcp_server {
   name: "Roby Robot"
-  version: "1.0.0"
+  version: "1.0.1"
   title: "Roby Robot"
   description: "New Terva MCP server."
   instructions: "Use the exposed tools and resources from this Terva project."

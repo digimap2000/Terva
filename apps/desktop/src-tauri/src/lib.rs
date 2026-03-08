@@ -4,8 +4,8 @@ mod project;
 
 use error::TervaError;
 use project::{
-    CoreBridge, EventBatch, ProjectDocument, ProjectSummary, ProjectMetadataUpdate,
-    RuntimeStatusPayload,
+    CoreBridge, EventBatch, NewProjectPreview, NewProjectRequest, ProjectDocument,
+    ProjectMetadataUpdate, ProjectSummary, RuntimeStatusPayload,
 };
 use tauri::State;
 
@@ -58,10 +58,21 @@ async fn open_project_document_at_path(
 }
 
 #[tauri::command]
-async fn create_project_document(
+fn get_new_project_preview(friendly_name: String, directory: Option<String>) -> NewProjectPreview {
+    project::get_new_project_preview(friendly_name, directory)
+}
+
+#[tauri::command]
+async fn pick_project_directory(directory: Option<String>) -> Option<String> {
+    project::pick_project_directory(directory).await
+}
+
+#[tauri::command]
+async fn create_project_document_with_options(
     bridge: State<'_, CoreBridge>,
-) -> Result<Option<ProjectDocument>, TervaError> {
-    project::create_project_document(bridge.inner()).await
+    request: NewProjectRequest,
+) -> Result<ProjectDocument, TervaError> {
+    project::create_project_document(bridge.inner(), request).await
 }
 
 #[tauri::command]
@@ -73,16 +84,12 @@ fn summarize_recent_projects(
 }
 
 #[tauri::command]
-fn start_active_runtime(
-    bridge: State<'_, CoreBridge>,
-) -> Result<RuntimeStatusPayload, TervaError> {
+fn start_active_runtime(bridge: State<'_, CoreBridge>) -> Result<RuntimeStatusPayload, TervaError> {
     bridge.inner().start_runtime()
 }
 
 #[tauri::command]
-fn stop_active_runtime(
-    bridge: State<'_, CoreBridge>,
-) -> Result<RuntimeStatusPayload, TervaError> {
+fn stop_active_runtime(bridge: State<'_, CoreBridge>) -> Result<RuntimeStatusPayload, TervaError> {
     bridge.inner().stop_runtime()
 }
 
@@ -107,10 +114,12 @@ pub fn run() {
     tauri::Builder::default()
         .manage(bridge)
         .invoke_handler(tauri::generate_handler![
-            create_project_document,
+            create_project_document_with_options,
             drain_core_events,
+            get_new_project_preview,
             open_project_document,
             open_project_document_at_path,
+            pick_project_directory,
             start_active_runtime,
             stop_active_runtime,
             summarize_recent_projects,

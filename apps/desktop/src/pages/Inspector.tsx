@@ -25,7 +25,7 @@ interface InspectorTarget {
 }
 
 interface InspectorProps {
-  project: ProjectDocument;
+  project: ProjectDocument | null;
 }
 
 const targets: InspectorTarget[] = [
@@ -181,7 +181,9 @@ export function Inspector({ project }: InspectorProps) {
                 label="Active Project"
                 description="Current Terva document alongside which the inspector is running."
               >
-                <div className="text-sm text-muted-foreground">{project.display_name}</div>
+                <div className="text-sm text-muted-foreground">
+                  {project ? project.display_name : "No project open"}
+                </div>
               </InspectorField>
             </div>
           </TabsContent>
@@ -219,18 +221,21 @@ export function Inspector({ project }: InspectorProps) {
       sidebarMinSize="14%"
       sidebarMaxSize="32%"
       contentClassName="p-6"
-      mainContent={
+      mainContent={(sidebarToggle) =>
         selectedTarget ? (
           <Tabs
             value={activeTab}
             onValueChange={(value) => setActiveTab(value as InspectorTab)}
             className="flex h-full min-h-0 flex-col"
           >
-            <TabsList variant="line" className="border-b pb-0">
-              <TabsTrigger value="overview">Overview</TabsTrigger>
-              <TabsTrigger value="discovery">Discovery</TabsTrigger>
-              <TabsTrigger value="debug">Debug</TabsTrigger>
-            </TabsList>
+            <div className="flex items-center gap-3">
+              {sidebarToggle}
+              <TabsList variant="line" className="border-0 pb-0">
+                <TabsTrigger value="overview">Overview</TabsTrigger>
+                <TabsTrigger value="discovery">Discovery</TabsTrigger>
+                <TabsTrigger value="debug">Debug</TabsTrigger>
+              </TabsList>
+            </div>
 
             <TabsContent value="overview" className="min-h-0 flex-1 overflow-auto pt-6">
               <div className="space-y-6">
@@ -342,12 +347,17 @@ export function Inspector({ project }: InspectorProps) {
             </TabsContent>
           </Tabs>
         ) : (
-          <div className="flex h-full items-center justify-center">
-            <div className="max-w-xl text-center">
-              <div className="text-sm font-medium">No inspection target selected</div>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                Choose an item from the sidebar to inspect local-network MCP servers here.
-              </p>
+          <div className="flex h-full flex-col overflow-hidden">
+            <div className="flex items-center gap-3">
+              {sidebarToggle}
+            </div>
+            <div className="flex min-h-0 flex-1 items-center justify-center">
+              <div className="max-w-xl text-center">
+                <div className="text-sm font-medium">No inspection target selected</div>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  Choose an item from the sidebar to inspect local-network MCP servers here.
+                </p>
+              </div>
             </div>
           </div>
         )

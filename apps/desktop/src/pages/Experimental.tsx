@@ -205,18 +205,21 @@ export function Experimental({ project }: ExperimentalProps) {
       sidebarMinSize="14%"
       sidebarMaxSize="32%"
       contentClassName="p-6"
-      mainContent={
+      mainContent={(sidebarToggle) =>
         selectedFeature ? (
           <Tabs
             value={activeTab}
             onValueChange={(value) => setActiveTab(value as ExperimentalTab)}
             className="flex h-full min-h-0 flex-col"
           >
-            <TabsList variant="line" className="border-b pb-0">
-              <TabsTrigger value="summary">Summary</TabsTrigger>
-              <TabsTrigger value="configuration">Configuration</TabsTrigger>
-              <TabsTrigger value="notes">Notes</TabsTrigger>
-            </TabsList>
+            <div className="flex items-center gap-3">
+              {sidebarToggle}
+              <TabsList variant="line" className="border-0 pb-0">
+                <TabsTrigger value="summary">Summary</TabsTrigger>
+                <TabsTrigger value="configuration">Configuration</TabsTrigger>
+                <TabsTrigger value="notes">Notes</TabsTrigger>
+              </TabsList>
+            </div>
 
             <TabsContent value="summary" className="min-h-0 flex-1 overflow-auto pt-6">
               <div className="space-y-6">
@@ -320,12 +323,17 @@ export function Experimental({ project }: ExperimentalProps) {
             </TabsContent>
           </Tabs>
         ) : (
-          <div className="flex h-full items-center justify-center">
-            <div className="max-w-xl text-center">
-              <div className="text-sm font-medium">No experimental feature selected</div>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                Choose a feature from the sidebar to inspect and configure it here.
-              </p>
+          <div className="flex h-full flex-col overflow-hidden">
+            <div className="flex items-center gap-3">
+              {sidebarToggle}
+            </div>
+            <div className="flex min-h-0 flex-1 items-center justify-center">
+              <div className="max-w-xl text-center">
+                <div className="text-sm font-medium">No experimental feature selected</div>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  Choose a feature from the sidebar to inspect and configure it here.
+                </p>
+              </div>
             </div>
           </div>
         )

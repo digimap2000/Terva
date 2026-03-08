@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  createProjectDocument,
+  createProjectDocumentWithOptions,
   drainCoreEvents,
   openProjectDocument,
   openProjectDocumentAtPath,
@@ -8,6 +8,7 @@ import {
   stopActiveRuntime,
   summarizeRecentProjects,
   updateProjectMetadata,
+  type NewProjectRequest,
   type ProjectMetadataUpdate,
   type ProjectDocument,
   type ProjectSummary,
@@ -247,19 +248,17 @@ export function useActiveProject() {
     }
   }
 
-  async function createProject() {
+  async function createProject(request: NewProjectRequest) {
     setLoading(true);
     setError(null);
 
     try {
-      const nextProject = await createProjectDocument();
-      if (nextProject) {
-        setProject(nextProject);
-        writeStoredRecentProjects(
-          mergeRecentProject(readStoredRecentProjects(), nextProject.path),
-        );
-        void refreshRecentProjects();
-      }
+      const nextProject = await createProjectDocumentWithOptions(request);
+      setProject(nextProject);
+      writeStoredRecentProjects(
+        mergeRecentProject(readStoredRecentProjects(), nextProject.path),
+      );
+      void refreshRecentProjects();
       return nextProject;
     } catch (value) {
       const message = value instanceof Error ? value.message : String(value);

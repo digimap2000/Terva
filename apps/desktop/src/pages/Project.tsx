@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   BadgeCheck,
   FileSymlink,
+  FolderOpen,
+  Plus,
   Server,
   Settings2,
   ShieldCheck,
@@ -15,8 +17,14 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { WorkbenchShell } from "@/components/layout/WorkbenchShell";
+import { useWorkspaceMenu } from "@/components/layout/WorkspaceMenuContext";
 import { projectActivity } from "@/lib/activity";
 import type { ProjectDocument, ProjectMetadataUpdate } from "@/lib/tauri";
 
@@ -80,7 +88,7 @@ const fieldHelp: Record<keyof ProjectFormState, FieldHelp> = {
     summary: "Mandatory MCP server version surfaced in serverInfo.version.",
     explanation:
       "Version the server surface deliberately. This is what clients will see during initialize and should track the server behavior they are connecting to.",
-    example: "1.0.0",
+    example: "1.0.1",
   },
   mcp_title: {
     label: "Server Title",
@@ -123,7 +131,7 @@ function toFormState(project: ProjectDocument): ProjectFormState {
     project_description: project.description ?? "",
     project_type: project.project_type || "device_bridge",
     mcp_name: project.mcp_server.name || project.display_name,
-    mcp_version: project.mcp_server.version || "1.0.0",
+    mcp_version: project.mcp_server.version || "1.0.1",
     mcp_title: project.mcp_server.title || "",
     mcp_description: project.mcp_server.description || "",
     mcp_website_url: project.mcp_server.website_url || "",
@@ -166,7 +174,7 @@ function ProjectInfographic({
   const visibleName = form.mcp_title.trim() || form.mcp_name.trim() || "Unnamed MCP Server";
 
   return (
-    <div className="flex h-full flex-col items-center justify-center px-8">
+    <div className="flex h-full flex-col items-center justify-start px-8 pt-10">
       <div className="relative flex w-full max-w-sm flex-col items-center">
         <div className="absolute inset-x-10 top-14 h-40 rounded-full bg-linear-to-br from-primary/18 via-accent/12 to-primary/6 blur-3xl" />
         <div className="relative flex size-52 items-center justify-center">
@@ -197,6 +205,8 @@ function ProjectInfographic({
 }
 
 export function Project({ project, loading, onSaveProjectMetadata }: ProjectProps) {
+  const workspaceMenu = useWorkspaceMenu();
+  const ProjectHeaderIcon = projectActivity.icon;
   const [activeTab, setActiveTab] = useState("identity");
   const [form, setForm] = useState<ProjectFormState>(() => toFormState(project));
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -266,6 +276,68 @@ export function Project({ project, loading, onSaveProjectMetadata }: ProjectProp
           <div>{form.mcp_version ? `Server ${form.mcp_version}` : "No server version set"}</div>
         </div>
       }
+      sidebarHeaderMenu={
+        workspaceMenu ? (
+          <>
+            <DropdownMenuLabel className="px-3 py-2 text-xs uppercase tracking-[0.24em] text-muted-foreground">
+              Projects
+            </DropdownMenuLabel>
+
+            {workspaceMenu.recentProjects.length > 0 ? (
+              workspaceMenu.recentProjects.map((recentProject) => (
+                <DropdownMenuItem
+                  key={recentProject.path}
+                  onSelect={() => workspaceMenu.onOpenRecentProject(recentProject.path)}
+                  className={[
+                    "gap-3 rounded-2xl px-3 py-3 focus:bg-secondary/55",
+                    workspaceMenu.activeProjectPath === recentProject.path
+                      ? "bg-secondary/75"
+                      : "",
+                  ].join(" ")}
+                >
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-background/70 text-muted-foreground">
+                    <ProjectHeaderIcon size={16} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium text-foreground">
+                      {recentProject.display_name}
+                    </div>
+                    <div className="truncate text-xs text-muted-foreground">
+                      {recentProject.path}
+                    </div>
+                  </div>
+                </DropdownMenuItem>
+              ))
+            ) : (
+              <div className="px-3 py-2.5 text-sm text-muted-foreground">
+                No recent projects yet.
+              </div>
+            )}
+
+            <DropdownMenuSeparator className="my-2 bg-border/60" />
+
+            <DropdownMenuItem
+              onSelect={() => workspaceMenu.onCreateProject()}
+              className="gap-3 rounded-2xl px-3 py-3 text-sm text-muted-foreground focus:bg-secondary/55 focus:text-foreground"
+            >
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-background/70 text-muted-foreground">
+                <Plus size={16} />
+              </div>
+              <span>Create New Project</span>
+            </DropdownMenuItem>
+
+            <DropdownMenuItem
+              onSelect={() => workspaceMenu.onOpenProject()}
+              className="gap-3 rounded-2xl px-3 py-3 text-sm text-muted-foreground focus:bg-secondary/55 focus:text-foreground"
+            >
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-background/70 text-muted-foreground">
+                <FolderOpen size={16} />
+              </div>
+              <span>Open Existing Project</span>
+            </DropdownMenuItem>
+          </>
+        ) : null
+      }
       bottomContent={
         <div className="flex h-full flex-col border-t bg-secondary/10">
           <div className="border-b px-4 py-3">
@@ -315,7 +387,7 @@ export function Project({ project, loading, onSaveProjectMetadata }: ProjectProp
       sidebarMinSize="18%"
       sidebarMaxSize="40%"
       contentClassName="p-6"
-      mainContent={
+      mainContent={(sidebarToggle) =>
         <div className="flex h-full flex-col overflow-hidden">
           {saveError ? (
             <div className="mb-6 rounded-xl border border-destructive/30 bg-destructive/8 px-4 py-3 text-sm text-destructive">
@@ -329,11 +401,14 @@ export function Project({ project, loading, onSaveProjectMetadata }: ProjectProp
                   onValueChange={setActiveTab}
                   className="flex h-full min-h-0 flex-col"
                 >
-                  <TabsList variant="line" className="border-b pb-0">
-                    <TabsTrigger value="identity">Identity</TabsTrigger>
-                    <TabsTrigger value="server">MCP Server</TabsTrigger>
-                    <TabsTrigger value="runtime">Runtime</TabsTrigger>
-                  </TabsList>
+                  <div className="flex items-center gap-3">
+                    {sidebarToggle}
+                    <TabsList variant="line" className="border-0 pb-0">
+                      <TabsTrigger value="identity">Identity</TabsTrigger>
+                      <TabsTrigger value="server">MCP Server</TabsTrigger>
+                      <TabsTrigger value="runtime">Runtime</TabsTrigger>
+                    </TabsList>
+                  </div>
 
                   <TabsContent value="identity" className="min-h-0 flex-1 overflow-auto pt-6">
                     <div className="space-y-6">
@@ -438,7 +513,7 @@ export function Project({ project, loading, onSaveProjectMetadata }: ProjectProp
                             onChange={(event) =>
                               updateField("mcp_version", event.target.value)
                             }
-                            placeholder="1.0.0"
+                            placeholder="1.0.1"
                           />
                         </Field>
 

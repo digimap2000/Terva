@@ -360,7 +360,7 @@ export function Generators({ project }: { project: ProjectDocument }) {
       sidebarMinSize="10%"
       sidebarMaxSize="30%"
       contentClassName="p-6"
-      mainContent={
+      mainContent={(sidebarToggle) =>
         <div className="flex h-full flex-col overflow-hidden">
           <div className="min-h-0 flex-1">
                 {selectedCapability ? (
@@ -373,13 +373,16 @@ export function Generators({ project }: { project: ProjectDocument }) {
                     }}
                     className="flex h-full min-h-0 flex-col"
                   >
-                    <TabsList variant="line" className="border-b pb-0">
-                      <TabsTrigger value="summary">Summary</TabsTrigger>
-                      <TabsTrigger value="inputs">Inputs</TabsTrigger>
-                      <TabsTrigger value="output">Output</TabsTrigger>
-                      <TabsTrigger value="steps">Steps</TabsTrigger>
-                      <TabsTrigger value="verification">Verification</TabsTrigger>
-                    </TabsList>
+                    <div className="flex items-center gap-3">
+                      {sidebarToggle}
+                      <TabsList variant="line" className="border-0 pb-0">
+                        <TabsTrigger value="summary">Summary</TabsTrigger>
+                        <TabsTrigger value="inputs">Inputs</TabsTrigger>
+                        <TabsTrigger value="output">Output</TabsTrigger>
+                        <TabsTrigger value="steps">Steps</TabsTrigger>
+                        <TabsTrigger value="verification">Verification</TabsTrigger>
+                      </TabsList>
+                    </div>
 
                     <TabsContent value="summary" className="min-h-0 flex-1 overflow-auto pt-6">
                       <div

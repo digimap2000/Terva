@@ -14,7 +14,10 @@ fn generate_proto(repo_root: &Path, out_dir: &Path) -> PathBuf {
     std::fs::create_dir_all(&generated_dir).expect("failed to create proto output dir");
 
     let status = Command::new("protoc")
-        .arg(format!("--proto_path={}", repo_root.join("proto").display()))
+        .arg(format!(
+            "--proto_path={}",
+            repo_root.join("proto").display()
+        ))
         .arg(format!("--cpp_out={}", generated_dir.display()))
         .arg(&proto_file)
         .status()
@@ -35,7 +38,9 @@ fn add_pkg_config_include_paths(build: &mut cc::Build, package: &str) {
 }
 
 fn main() {
-    let repo_root = repo_root().canonicalize().expect("failed to resolve repo root");
+    let repo_root = repo_root()
+        .canonicalize()
+        .expect("failed to resolve repo root");
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("missing OUT_DIR"));
     let generated_proto_dir = generate_proto(&repo_root, &out_dir);
     let version_define = format!("\"{}\"", env::var("CARGO_PKG_VERSION").unwrap());
@@ -72,7 +77,9 @@ fn main() {
     println!("cargo:rerun-if-changed=src/bridge.hpp");
     println!(
         "cargo:rerun-if-changed={}",
-        repo_root.join("proto/terva/project/v1/project.proto").display()
+        repo_root
+            .join("proto/terva/project/v1/project.proto")
+            .display()
     );
     for relative in [
         "core/include/terva/core/backend/backend.hpp",

@@ -1,6 +1,6 @@
 [package]
 name = "terva-desktop"
-version = "1.0.0"
+version = "1.0.2"
 description = "Terva desktop application"
 authors = ["Naim Audio"]
 edition = "2021"

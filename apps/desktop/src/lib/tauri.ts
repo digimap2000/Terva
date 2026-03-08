@@ -103,6 +103,20 @@ export interface ProjectMetadataUpdate {
   mcp_instructions: string;
 }
 
+export interface NewProjectPreview {
+  friendly_name: string;
+  filesystem_name: string;
+  file_name: string;
+  mcp_server_name: string;
+  directory: string;
+  target_path: string;
+}
+
+export interface NewProjectRequest {
+  friendly_name: string;
+  directory: string;
+}
+
 export interface ToolSummary {
   capability_id: string;
   tool_name: string;
@@ -132,8 +146,26 @@ export async function openProjectDocumentAtPath(path: string): Promise<ProjectDo
   return invoke<ProjectDocument>("open_project_document_at_path", { path });
 }
 
-export async function createProjectDocument(): Promise<ProjectDocument | null> {
-  return invoke<ProjectDocument | null>("create_project_document");
+export async function getNewProjectPreview(
+  friendlyName: string,
+  directory?: string | null,
+): Promise<NewProjectPreview> {
+  return invoke<NewProjectPreview>("get_new_project_preview", {
+    friendlyName,
+    directory,
+  });
+}
+
+export async function pickProjectDirectory(
+  directory?: string | null,
+): Promise<string | null> {
+  return invoke<string | null>("pick_project_directory", { directory });
+}
+
+export async function createProjectDocumentWithOptions(
+  request: NewProjectRequest,
+): Promise<ProjectDocument> {
+  return invoke<ProjectDocument>("create_project_document_with_options", { request });
 }
 
 export async function summarizeRecentProjects(
