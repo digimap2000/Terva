@@ -149,6 +149,9 @@ struct project_definition final {
   mcp_server_definition mcp_server;
   std::vector<mcp_transport> mcp_transports;
   std::optional<product_connector> product_connector;
+  std::optional<std::string> product_name;
+  std::optional<std::string> product_image_path;
+  std::optional<std::string> product_category_icon;
   product_http_settings product_http;
   product_uart_settings product_uart;
   logging_options logging;

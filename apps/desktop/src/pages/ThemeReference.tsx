@@ -229,6 +229,200 @@ function CandidateCard({
   );
 }
 
+function DeviceStage({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-[2rem] border border-white/6 bg-[radial-gradient(circle_at_50%_18%,rgba(255,255,255,0.08),transparent_32%),linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01)),linear-gradient(180deg,#111214,#191a1d)] px-6 py-8 shadow-[inset_0_1px_0_rgba(255,255,255,0.08),0_28px_70px_-40px_rgba(0,0,0,0.85)]">
+      <div className="flex min-h-[18rem] items-center justify-center">{children}</div>
+    </div>
+  );
+}
+
+function DeviceCaption({
+  name,
+  note,
+}: {
+  name: string;
+  note: string;
+}) {
+  return (
+    <div className="mt-5 text-center">
+      <div className="font-serif text-xl tracking-[0.02em] text-white/92">{name}</div>
+      <div className="mt-1 text-sm text-white/55">{note}</div>
+    </div>
+  );
+}
+
+function DeviceRenderCard({
+  name,
+  note,
+  children,
+}: {
+  name: string;
+  note: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-[2.25rem] border border-border/50 bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.06),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0)),linear-gradient(180deg,#1a1b1f,#1e2024)] p-6 shadow-[0_36px_90px_-50px_rgba(0,0,0,0.95)]">
+      <DeviceStage>{children}</DeviceStage>
+      <DeviceCaption name={name} note={note} />
+    </div>
+  );
+}
+
+function RenderShelf() {
+  return (
+    <div className="relative h-6 w-[16rem] rounded-full bg-[radial-gradient(circle_at_50%_0%,rgba(34,197,94,0.45),transparent_42%),linear-gradient(180deg,rgba(255,255,255,0.1),rgba(255,255,255,0))] opacity-70 blur-[1px]" />
+  );
+}
+
+function RenderBox({
+  className = "",
+  glow = true,
+  led = true,
+}: {
+  className?: string;
+  glow?: boolean;
+  led?: boolean;
+}) {
+  return (
+    <div className="relative flex flex-col items-center">
+      <div
+        className={`absolute left-1/2 top-[72%] h-8 w-[72%] -translate-x-1/2 rounded-full bg-black/70 blur-xl ${glow ? "opacity-100" : "opacity-70"}`}
+      />
+      <div
+        className={`relative overflow-hidden border border-white/6 bg-[radial-gradient(circle_at_50%_5%,rgba(255,255,255,0.14),transparent_28%),linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0.015)_30%,rgba(0,0,0,0.32)_100%),linear-gradient(135deg,#202124_0%,#08090b_55%,#050607_100%)] shadow-[inset_0_1px_0_rgba(255,255,255,0.09),inset_24px_0_60px_rgba(255,255,255,0.015),inset_-18px_-30px_80px_rgba(0,0,0,0.65),0_18px_40px_-24px_rgba(0,0,0,0.9)] ${className}`}
+      >
+        <div className="pointer-events-none absolute inset-x-[8%] top-[8%] h-px bg-white/18" />
+        <div className="pointer-events-none absolute inset-y-0 left-0 w-[12%] bg-linear-to-r from-white/8 to-transparent opacity-40" />
+        {led ? (
+          <div className="absolute bottom-[7%] left-1/2 h-[2px] w-[32%] -translate-x-1/2 rounded-full bg-emerald-400/90 shadow-[0_0_10px_rgba(74,222,128,0.65)]" />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function SlabRender() {
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <div className="relative">
+        <div className="absolute inset-x-[10%] top-[-10px] h-10 bg-white/8 blur-2xl" />
+        <div className="h-0 w-[20rem] border-r-[18px] border-b-[26px] border-l-[18px] border-r-transparent border-b-[#0a0b0d] border-l-transparent drop-shadow-[0_8px_14px_rgba(0,0,0,0.7)]" />
+        <RenderBox className="h-4 w-[20rem] rounded-b-[0.9rem]" />
+      </div>
+      <RenderShelf />
+    </div>
+  );
+}
+
+function ConceptCard({
+  name,
+  note,
+  children,
+}: {
+  name: string;
+  note: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-[2.25rem] border border-border/50 bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.06),transparent_30%),linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0)),linear-gradient(180deg,#1a1b1f,#1e2024)] p-6 shadow-[0_36px_90px_-50px_rgba(0,0,0,0.95)]">
+      <DeviceStage>{children}</DeviceStage>
+      <DeviceCaption name={name} note={note} />
+    </div>
+  );
+}
+
+function GhostBlueprintConcept() {
+  return (
+    <svg viewBox="0 0 320 190" className="h-[12rem] w-[20rem] text-white/70" fill="none">
+      <rect x="50" y="64" width="220" height="62" rx="14" stroke="currentColor" strokeWidth="2" strokeOpacity="0.45" />
+      <path d="M64 64h192l16-16H80l-16 16Z" stroke="currentColor" strokeWidth="2" strokeOpacity="0.34" />
+      <path d="M82 93h156" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.22" strokeDasharray="6 6" />
+      <path d="M95 126v20M225 126v20" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.18" />
+      <path d="M54 146h212" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.15" />
+      <circle cx="160" cy="95" r="44" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.14" strokeDasharray="4 8" />
+      <path d="M96 24v24M96 36h104" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.35" />
+      <path d="M224 24v24M120 36h104" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.22" />
+      <path d="M160 126v18" stroke="#4ade80" strokeWidth="2" strokeLinecap="round" opacity="0.9" />
+    </svg>
+  );
+}
+
+function GhostOutlineConcept() {
+  return (
+    <svg viewBox="0 0 320 190" className="h-[12rem] w-[20rem] text-white/70" fill="none">
+      <rect x="60" y="72" width="200" height="46" rx="14" stroke="currentColor" strokeWidth="2" strokeOpacity="0.42" />
+      <path d="M78 72h164l14-14H92l-14 14Z" stroke="currentColor" strokeWidth="2" strokeOpacity="0.28" />
+      <path d="M95 118v14M225 118v14" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.18" />
+      <path d="M70 134h180" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.14" />
+      <path d="M160 118v14" stroke="#4ade80" strokeWidth="2" strokeLinecap="round" opacity="0.9" />
+    </svg>
+  );
+}
+
+function GhostMeasuredConcept() {
+  return (
+    <svg viewBox="0 0 320 190" className="h-[12rem] w-[20rem] text-white/70" fill="none">
+      <rect x="54" y="68" width="212" height="54" rx="13" stroke="currentColor" strokeWidth="2" strokeOpacity="0.42" />
+      <path d="M68 68h184l14-14H82l-14 14Z" stroke="currentColor" strokeWidth="2" strokeOpacity="0.32" />
+      <path d="M86 92h148" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.18" strokeDasharray="5 6" />
+      <path d="M76 42v20M244 42v20" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.22" />
+      <path d="M76 52h168" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.18" />
+      <path d="M54 144h34M232 144h34" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.18" />
+      <path d="M88 132v20M232 132v20" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.18" />
+      <text x="58" y="39" fill="currentColor" fillOpacity="0.32" fontSize="10">W</text>
+      <text x="247" y="39" fill="currentColor" fillOpacity="0.32" fontSize="10">D</text>
+      <path d="M160 122v18" stroke="#4ade80" strokeWidth="2" strokeLinecap="round" opacity="0.9" />
+    </svg>
+  );
+}
+
+function GhostTopologyConcept() {
+  return (
+    <svg viewBox="0 0 320 190" className="h-[12rem] w-[20rem] text-white/70" fill="none">
+      <rect x="74" y="76" width="172" height="42" rx="12" stroke="currentColor" strokeWidth="2" strokeOpacity="0.38" />
+      <path d="M88 76h144l12-12H100l-12 12Z" stroke="currentColor" strokeWidth="2" strokeOpacity="0.28" />
+      <circle cx="118" cy="97" r="7" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.22" />
+      <circle cx="160" cy="97" r="7" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.22" />
+      <circle cx="202" cy="97" r="7" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.22" />
+      <path d="M125 97h28M167 97h28" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.18" />
+      <path d="M160 48v18M96 140v14M224 140v14" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.18" />
+      <path d="M160 54h46" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.18" />
+      <path d="M160 118v18" stroke="#4ade80" strokeWidth="2" strokeLinecap="round" opacity="0.9" />
+    </svg>
+  );
+}
+
+function GhostSectionConcept() {
+  return (
+    <svg viewBox="0 0 320 190" className="h-[12rem] w-[20rem] text-white/70" fill="none">
+      <rect x="60" y="70" width="200" height="52" rx="13" stroke="currentColor" strokeWidth="2" strokeOpacity="0.42" />
+      <path d="M74 70h172l14-14H88l-14 14Z" stroke="currentColor" strokeWidth="2" strokeOpacity="0.3" />
+      <path d="M132 70v52M188 70v52" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.16" strokeDasharray="4 6" />
+      <path d="M72 96h176" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.12" />
+      <path d="M88 134h144" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.18" />
+      <path d="M104 40v18M216 40v18" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.18" />
+      <path d="M104 46h112" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.14" />
+      <path d="M160 122v18" stroke="#4ade80" strokeWidth="2" strokeLinecap="round" opacity="0.9" />
+    </svg>
+  );
+}
+
+function GhostAssemblyConcept() {
+  return (
+    <svg viewBox="0 0 320 190" className="h-[12rem] w-[20rem] text-white/70" fill="none">
+      <rect x="66" y="80" width="188" height="38" rx="11" stroke="currentColor" strokeWidth="2" strokeOpacity="0.38" />
+      <path d="M84 80h152l12-10H96L84 80Z" stroke="currentColor" strokeWidth="2" strokeOpacity="0.26" />
+      <rect x="96" y="58" width="42" height="14" rx="5" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.18" />
+      <rect x="182" y="58" width="42" height="14" rx="5" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.18" />
+      <path d="M117 72v8M203 72v8" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.18" />
+      <path d="M74 132h172" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.16" />
+      <path d="M108 118v18M212 118v18" stroke="currentColor" strokeWidth="1.5" strokeOpacity="0.18" />
+      <path d="M160 118v18" stroke="#4ade80" strokeWidth="2" strokeLinecap="round" opacity="0.9" />
+    </svg>
+  );
+}
+
 // ── Page ─────────────────────────────────────────────────────────────
 
 export function ThemeReference() {
@@ -250,6 +444,7 @@ export function ThemeReference() {
             <TabsTrigger value="spacing">Spacing</TabsTrigger>
             <TabsTrigger value="components">Components</TabsTrigger>
             <TabsTrigger value="icons">Icons</TabsTrigger>
+            <TabsTrigger value="renders">Renders</TabsTrigger>
             <TabsTrigger value="semantic">Semantic</TabsTrigger>
             <TabsTrigger value="variables">Variables</TabsTrigger>
           </TabsList>
@@ -558,6 +753,70 @@ export function ThemeReference() {
                     </div>
                   ))}
                 </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="renders" className="mt-0 space-y-8">
+              <div className="space-y-2">
+                <h3 className="text-sm font-medium text-muted-foreground">
+                  Product Representation Studies
+                </h3>
+                <p className="max-w-3xl text-xs leading-6 text-muted-foreground">
+                  The strongest direction so far is a ghosted technical placeholder for
+                  an unknown external product. This set explores that language from very
+                  simple outlines through to richer assembly and topology hints.
+                </p>
+              </div>
+
+              <div className="grid gap-6 xl:grid-cols-2">
+                <DeviceRenderCard
+                  name="Low Slab"
+                  note="Broad, restrained, and shelf-like with a single operational hint."
+                >
+                  <SlabRender />
+                </DeviceRenderCard>
+
+                <ConceptCard
+                  name="Ghost Outline"
+                  note="The most reduced version: one quiet contour and a small operational cue."
+                >
+                  <GhostOutlineConcept />
+                </ConceptCard>
+
+                <ConceptCard
+                  name="Ghost Blueprint"
+                  note="A balanced middle ground with just enough construction detail to imply a real object."
+                >
+                  <GhostBlueprintConcept />
+                </ConceptCard>
+
+                <ConceptCard
+                  name="Ghost Measured"
+                  note="Adds a few dimension lines and callout hints without turning into a full engineering drawing."
+                >
+                  <GhostMeasuredConcept />
+                </ConceptCard>
+
+                <ConceptCard
+                  name="Ghost Topology"
+                  note="Suggests internal arrangement or logical zones, useful when the product matters more as a system than a chassis."
+                >
+                  <GhostTopologyConcept />
+                </ConceptCard>
+
+                <ConceptCard
+                  name="Ghost Section"
+                  note="Uses sectional lines and internal partitions to feel more technical while staying abstract."
+                >
+                  <GhostSectionConcept />
+                </ConceptCard>
+
+                <ConceptCard
+                  name="Ghost Assembly"
+                  note="The richest version here, with small sub-assemblies and alignment hints for a more instrument-like feel."
+                >
+                  <GhostAssemblyConcept />
+                </ConceptCard>
               </div>
             </TabsContent>
 

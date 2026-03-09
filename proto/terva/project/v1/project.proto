@@ -204,4 +204,7 @@ message ProjectDefinition {
   ProductConnector product_connector = 8;
   ProductHttpSettings product_http = 9;
   ProductUartSettings product_uart = 10;
+  string product_name = 11;
+  string product_image_path = 12;
+  string product_category_icon = 13;
 }

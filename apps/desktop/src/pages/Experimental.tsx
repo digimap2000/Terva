@@ -105,13 +105,13 @@ export function Experimental({ project }: ExperimentalProps) {
 
   return (
     <WorkbenchShell
-      sidebarStorageKey="terva-experimental-sidebar-v1"
+      sidebarStorageKey="terva-labs-sidebar-v1"
       sidebarTitle={experimentalActivity.label}
       sidebarDescription="Emerging MCP features we may enable behind the active project."
       sidebarIcon={experimentalActivity.icon}
       sidebarFooter={
         <div className="text-xs text-muted-foreground">
-          {features.length} experimental feature{features.length === 1 ? "" : "s"} listed
+          {features.length} lab feature{features.length === 1 ? "" : "s"} listed
         </div>
       }
       sidebarContent={
@@ -156,7 +156,7 @@ export function Experimental({ project }: ExperimentalProps) {
                   </div>
                 ) : (
                   <div className="text-sm text-muted-foreground">
-                    Select an experimental feature to inspect it here.
+                    Select a lab feature to inspect it here.
                   </div>
                 )}
               </ExperimentalField>
@@ -166,7 +166,7 @@ export function Experimental({ project }: ExperimentalProps) {
                 description="Active project that will ultimately own this capability."
               >
                 <div className="text-sm text-muted-foreground">
-                  {project.display_name} can opt into selected experimental MCP server features here.
+                  {project.display_name} can opt into selected lab-stage MCP server features here.
                 </div>
               </ExperimentalField>
             </div>
@@ -179,7 +179,7 @@ export function Experimental({ project }: ExperimentalProps) {
                 description="Advisory findings or cautions for the selected feature."
               >
                 <div className="text-sm leading-6 text-muted-foreground">
-                  Experimental-feature warnings are not surfaced yet. This panel is reserved for
+                  Lab-feature warnings are not surfaced yet. This panel is reserved for
                   rollout cautions, partial support notes, and interoperability concerns.
                 </div>
               </ExperimentalField>
@@ -193,7 +193,7 @@ export function Experimental({ project }: ExperimentalProps) {
                 description="Blocking issues related to the selected feature."
               >
                 <div className="text-sm leading-6 text-muted-foreground">
-                  Experimental-feature errors are not surfaced yet. This panel will carry
+                  Lab-feature errors are not surfaced yet. This panel will carry
                   invalid configuration, unavailable platform support, or runtime conflicts.
                 </div>
               </ExperimentalField>
@@ -224,14 +224,14 @@ export function Experimental({ project }: ExperimentalProps) {
             <TabsContent value="summary" className="min-h-0 flex-1 overflow-auto pt-6">
               <div className="space-y-6">
                 <p className="text-sm leading-6 text-muted-foreground">
-                  Experimental features let the project opt into emerging MCP server capabilities
+                  Labs lets the project opt into emerging MCP server capabilities
                   without blurring the core product model.
                 </p>
 
                 <div className="space-y-0">
                   <ExperimentalField
                     label="Feature"
-                    description="Experimental MCP server feature currently in focus."
+                    description="Lab-stage MCP server feature currently in focus."
                   >
                     <div className="inline-flex items-center gap-2 text-sm">
                       <Sparkles size={15} className="text-muted-foreground" />
@@ -261,7 +261,7 @@ export function Experimental({ project }: ExperimentalProps) {
             <TabsContent value="configuration" className="min-h-0 flex-1 overflow-auto pt-6">
               <div className="space-y-6">
                 <p className="text-sm leading-6 text-muted-foreground">
-                  This will become the configuration surface for the selected experimental feature.
+                  This will become the configuration surface for the selected lab feature.
                   For now it establishes the exact shape of the first feature we intend to support.
                 </p>
 
@@ -290,7 +290,7 @@ export function Experimental({ project }: ExperimentalProps) {
               <div className="space-y-6">
                 <p className="text-sm leading-6 text-muted-foreground">
                   This space is reserved for implementation notes, protocol caveats, and rollout
-                  guidance for each experimental server feature.
+                  guidance for each lab-stage server feature.
                 </p>
 
                 <div className="space-y-0">
@@ -301,7 +301,7 @@ export function Experimental({ project }: ExperimentalProps) {
                     <div className="inline-flex items-start gap-2 text-sm">
                       <BadgeInfo size={15} className="mt-0.5 shrink-0 text-muted-foreground" />
                       <div className="text-muted-foreground">
-                        The first experimental feature is mDNS advertisement of the MCP server so
+                        The first lab feature is mDNS advertisement of the MCP server so
                         local clients can discover the running endpoint on the network.
                       </div>
                     </div>
@@ -329,7 +329,7 @@ export function Experimental({ project }: ExperimentalProps) {
             </div>
             <div className="flex min-h-0 flex-1 items-center justify-center">
               <div className="max-w-xl text-center">
-                <div className="text-sm font-medium">No experimental feature selected</div>
+                <div className="text-sm font-medium">No lab feature selected</div>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
                   Choose a feature from the sidebar to inspect and configure it here.
                 </p>

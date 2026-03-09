@@ -29,9 +29,17 @@ export function ServerVisualFrame({
   );
 }
 
-export function SystemBridgeVisual() {
+export function SystemBridgeVisual({
+  className,
+}: {
+  className?: string;
+}) {
   return (
-    <svg viewBox="0 0 160 160" className="relative size-30 text-foreground" fill="none">
+    <svg
+      viewBox="0 0 160 160"
+      className={cn("relative size-30 text-foreground", className)}
+      fill="none"
+    >
       <rect x="16" y="52" width="34" height="56" rx="10" stroke="currentColor" strokeWidth="5" />
       <rect x="110" y="52" width="34" height="56" rx="10" stroke="currentColor" strokeWidth="5" />
       <path d="M50 80h18c9 0 15-8 15-18s6-18 15-18h12" stroke="currentColor" strokeWidth="5" strokeLinecap="round" />

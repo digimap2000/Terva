@@ -218,6 +218,9 @@ struct managed_http_server final {
       {"mcp_server", std::move(mcp_server)},
       {"mcp_transports", std::move(mcp_transports)},
       {"product_connector", std::move(product_connector)},
+      {"product_name", project.product_name.value_or("")},
+      {"product_image_path", project.product_image_path.value_or("")},
+      {"product_category_icon", project.product_category_icon.value_or("")},
       {"product_http", std::move(product_http)},
       {"product_uart", std::move(product_uart)},
       {"source_path", project.source_path.string()},
@@ -257,6 +260,10 @@ struct managed_http_server final {
     }
     payload["mcp_transports"] = std::move(mcp_transports);
     payload["product_connector"] = std::move(product_connector);
+    payload["product_name"] = document.project->product_name.value_or("");
+    payload["product_image_path"] = document.project->product_image_path.value_or("");
+    payload["product_category_icon"] =
+        document.project->product_category_icon.value_or("");
     payload["product_http"] = json{
         {"version", document.project->product_http.version.value_or("")},
         {"tls_enabled", document.project->product_http.tls_enabled},
@@ -282,6 +289,9 @@ struct managed_http_server final {
     payload["description"] = "";
     payload["mcp_transports"] = json::array();
     payload["product_connector"] = "";
+    payload["product_name"] = "";
+    payload["product_image_path"] = "";
+    payload["product_category_icon"] = "";
     payload["product_http"] = json{
         {"version", ""},
         {"tls_enabled", false},
@@ -599,6 +609,9 @@ std::expected<json, std::string> engine::update_project_metadata(
     }
     updated.product_connector = *parsed;
   }
+  assign_optional_string("product_name", updated.product_name);
+  assign_optional_string("product_image_path", updated.product_image_path);
+  assign_optional_string("product_category_icon", updated.product_category_icon);
   assign_optional_string("product_http_version", updated.product_http.version);
   assign_optional_bool("product_http_tls_enabled", updated.product_http.tls_enabled);
   if (const auto headers = assign_named_string_list("product_http_mandatory_headers");

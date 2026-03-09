@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Navigate, Route, Routes, useNavigate } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { ActivityRail } from "@/components/layout/ActivityRail";
 import { StatusBar } from "@/components/layout/StatusBar";
 import { ZoomIndicator } from "@/components/layout/ZoomIndicator";
@@ -9,7 +9,6 @@ import {
 } from "@/components/layout/WorkspaceMenuContext";
 import { NewProjectDialog } from "@/components/workspace/NewProjectDialog";
 import { Auth } from "@/pages/Auth";
-import { Backends } from "@/pages/Backends";
 import { Experimental } from "@/pages/Experimental";
 import { Generators } from "@/pages/Generators";
 import { Inspector } from "@/pages/Inspector";
@@ -114,9 +113,8 @@ function Workspace({
             />
           }
         />
-        <Route path="/behaviour" element={<Generators project={project} />} />
-        <Route path="/backends" element={<Backends project={project} />} />
-        <Route path="/experimental" element={<Experimental project={project} />} />
+        <Route path="/endpoints" element={<Generators project={project} />} />
+        <Route path="/labs" element={<Experimental project={project} />} />
         <Route path="/inspector" element={<Inspector project={project} />} />
         <Route path="/auth" element={<Auth />} />
         <Route
@@ -207,6 +205,7 @@ export default function App() {
   } = useActiveProject();
   const { zoom } = useZoom();
   const navigate = useNavigate();
+  const location = useLocation();
   const [newProjectDialogOpen, setNewProjectDialogOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
   const [newProjectDirectory, setNewProjectDirectory] = useState<string | null>(null);
@@ -341,6 +340,8 @@ export default function App() {
     onOpenRecentProject: handleOpenRecentProject,
   };
 
+  const showStatusBar = location.pathname !== "/workspace";
+
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-background">
       <ZoomIndicator zoom={zoom} />
@@ -390,11 +391,13 @@ export default function App() {
         onClose={closeNewProjectDialog}
         onCreate={handleCreateProject}
       />
-      <StatusBar
-        activeProject={project}
-        runtimeState={project ? runtimeState : "stopped"}
-        serverUrl={project ? serverUrl : null}
-      />
+      {showStatusBar ? (
+        <StatusBar
+          activeProject={project}
+          runtimeState={project ? runtimeState : "stopped"}
+          serverUrl={project ? serverUrl : null}
+        />
+      ) : null}
     </div>
   );
 }

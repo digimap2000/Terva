@@ -23,7 +23,7 @@ interface CapabilityCategory {
   capabilities: InspectionCapability[];
 }
 
-type BehaviourTab = "summary" | "inputs" | "output" | "steps" | "verification";
+type EndpointTab = "summary" | "inputs" | "output" | "steps" | "verification";
 type DiagnosticTab = "info" | "warnings" | "errors";
 
 interface FieldHelp {
@@ -36,31 +36,31 @@ interface FieldHelp {
 const actionButtonClass =
   "flex size-5 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground";
 
-const tabHelp: Record<BehaviourTab, FieldHelp> = {
+const tabHelp: Record<EndpointTab, FieldHelp> = {
   summary: {
     label: "Summary",
-    summary: "High-level identity and shape of the selected behaviour.",
+    summary: "High-level identity and shape of the selected endpoint.",
     explanation:
-      "Use this surface to understand the behaviour at a glance: its MCP tool name, category, main action, and overall execution shape. This is the stable top-level overview before the user edits deeper details.",
+      "Use this surface to understand the endpoint at a glance: its MCP tool name, category, main action, and overall execution shape. This is the stable top-level overview before the user edits deeper details.",
     example: "Tool enter_active writes power state and verifies the final system value.",
   },
   inputs: {
     label: "Inputs",
-    summary: "Fields the behaviour accepts from MCP callers.",
+    summary: "Fields the endpoint accepts from MCP callers.",
     explanation:
       "This tab is where the input contract of the selected capability will be defined. For now it shows the fields surfaced from inspection so the shape of the command is visible and ready for editing later.",
     example: "set_volume exposes a single level field; enter_active exposes no explicit inputs.",
   },
   output: {
     label: "Output",
-    summary: "How backend responses are parsed into the behaviour result.",
+    summary: "How backend responses are parsed into the endpoint result.",
     explanation:
       "Keep the output surface deterministic and explicit. This is where field extraction, normalization, and user-facing result shaping will be configured as the desktop editor grows.",
     example: "Map backend system=lona to normalized_state=standby.",
   },
   steps: {
     label: "Steps",
-    summary: "Ordered backend actions and prerequisite flow for the behaviour.",
+    summary: "Ordered backend actions and prerequisite flow for the endpoint.",
     explanation:
       "This is the place for the write action, any prerequisite/setup stages, and multi-step backend orchestration. Even before editing is wired, the user should be able to read the current structure cleanly here.",
     example: "PUT /power?system=on followed by a GET readback.",
@@ -177,9 +177,9 @@ function TabIntro({ text }: { text: string }) {
 export function Generators({ project }: { project: ProjectDocument }) {
   const capabilities = project.inspection?.capabilities ?? [];
   const [selectedId, setSelectedId] = useState(capabilities[0]?.id ?? "");
-  const [activeTab, setActiveTab] = useState<BehaviourTab>("summary");
+  const [activeTab, setActiveTab] = useState<EndpointTab>("summary");
   const [diagnosticTab, setDiagnosticTab] = useState<DiagnosticTab>("info");
-  const [inspectedTab, setInspectedTab] = useState<BehaviourTab>("summary");
+  const [inspectedTab, setInspectedTab] = useState<EndpointTab>("summary");
 
   useEffect(() => {
     const firstCapability = capabilities[0];
@@ -218,7 +218,7 @@ export function Generators({ project }: { project: ProjectDocument }) {
 
   return (
     <WorkbenchShell
-      sidebarStorageKey="terva-behaviour-sidebar-v1"
+      sidebarStorageKey="terva-endpoints-sidebar-v1"
       sidebarTitle={behaviourActivity.label}
       sidebarDescription="Capabilities grouped into the categories currently defined by this project."
       sidebarIcon={behaviourActivity.icon}
@@ -277,7 +277,7 @@ export function Generators({ project }: { project: ProjectDocument }) {
               <div className="space-y-0">
                 <CapabilityField
                   label={tabHelp[inspectedTab].label}
-                  description="Current editor focus within the selected behaviour."
+                  description="Current editor focus within the selected endpoint."
                 >
                   <div className="space-y-2">
                     <div className="text-sm font-medium">{tabHelp[inspectedTab].summary}</div>
@@ -291,7 +291,7 @@ export function Generators({ project }: { project: ProjectDocument }) {
                 </CapabilityField>
 
                 <CapabilityField
-                  label="Selected Behaviour"
+                  label="Selected Endpoint"
                   description="Stable reference for the capability currently being configured."
                 >
                   {selectedCapability ? (
@@ -307,7 +307,7 @@ export function Generators({ project }: { project: ProjectDocument }) {
                     </div>
                   ) : (
                     <div className="text-sm text-muted-foreground">
-                      Select a behaviour to inspect it here.
+                      Select an endpoint to inspect it here.
                     </div>
                   )}
                 </CapabilityField>
@@ -349,7 +349,7 @@ export function Generators({ project }: { project: ProjectDocument }) {
                 <div className="text-sm leading-6 text-muted-foreground">
                   Capability-scoped errors are not surfaced yet. This panel will become
                   the place for broken references, invalid action definitions, and other
-                  issues that prevent the behaviour from running safely.
+                  issues that prevent the endpoint from running safely.
                 </div>
               </CapabilityField>
             </div>
@@ -367,7 +367,7 @@ export function Generators({ project }: { project: ProjectDocument }) {
                   <Tabs
                     value={activeTab}
                     onValueChange={(value) => {
-                      const next = value as BehaviourTab;
+                      const next = value as EndpointTab;
                       setActiveTab(next);
                       setInspectedTab(next);
                     }}
@@ -389,18 +389,18 @@ export function Generators({ project }: { project: ProjectDocument }) {
                         className="space-y-6"
                         onMouseEnter={() => setInspectedTab("summary")}
                       >
-                        <TabIntro text="Define the selected behaviour as a clear MCP command: what it is called, how it is grouped, and how the runtime resolves it." />
+                        <TabIntro text="Define the selected endpoint as a clear MCP command: what it is called, how it is grouped, and how the runtime resolves it." />
 
                         <div className="space-y-0">
                           <CapabilityField
                             label="Tool Name"
-                            description="Public MCP-facing name used to invoke this behaviour."
+                            description="Public MCP-facing name used to invoke this endpoint."
                           >
                             <div className="text-sm font-medium">{selectedCapability.tool_name}</div>
                           </CapabilityField>
                           <CapabilityField
                             label="Description"
-                            description="Human-readable explanation of what the behaviour does."
+                            description="Human-readable explanation of what the endpoint does."
                           >
                             <div className="text-sm leading-6 text-muted-foreground">
                               {selectedCapability.description || "No description defined."}
@@ -416,7 +416,7 @@ export function Generators({ project }: { project: ProjectDocument }) {
                           </CapabilityField>
                           <CapabilityField
                             label="Main Action"
-                            description="Primary action id that represents the behaviour execution."
+                            description="Primary action id that represents the endpoint execution."
                           >
                             <div className="text-sm font-medium">
                               {selectedCapability.main_action_id}
@@ -431,7 +431,7 @@ export function Generators({ project }: { project: ProjectDocument }) {
                         className="space-y-6"
                         onMouseEnter={() => setInspectedTab("inputs")}
                       >
-                        <TabIntro text="Define the explicit input contract for this behaviour. Keep it narrow, typed, and obvious to both users and MCP clients." />
+                        <TabIntro text="Define the explicit input contract for this endpoint. Keep it narrow, typed, and obvious to both users and MCP clients." />
 
                         <div className="space-y-0">
                           <CapabilityField
@@ -454,7 +454,7 @@ export function Generators({ project }: { project: ProjectDocument }) {
                               </div>
                             ) : (
                               <div className="text-sm text-muted-foreground">
-                                This behaviour currently accepts no explicit input fields.
+                                This endpoint currently accepts no explicit input fields.
                               </div>
                             )}
                           </CapabilityField>
@@ -472,7 +472,7 @@ export function Generators({ project }: { project: ProjectDocument }) {
                         <div className="space-y-0">
                           <CapabilityField
                             label="Current Output Model"
-                            description="What the desktop can currently infer about this behaviour's output shaping."
+                            description="What the desktop can currently infer about this endpoint's output shaping."
                           >
                             <div className="text-sm leading-6 text-muted-foreground">
                               Output mapping details are not surfaced through the current desktop
@@ -489,12 +489,12 @@ export function Generators({ project }: { project: ProjectDocument }) {
                         className="space-y-6"
                         onMouseEnter={() => setInspectedTab("steps")}
                       >
-                        <TabIntro text="Describe the ordered backend actions that implement this behaviour, including any prerequisite or setup work required to make it succeed." />
+                        <TabIntro text="Describe the ordered backend actions that implement this endpoint, including any prerequisite or setup work required to make it succeed." />
 
                         <div className="space-y-0">
                           <CapabilityField
                             label="Execution Steps"
-                            description="Ordered backend actions currently defined for this behaviour."
+                            description="Ordered backend actions currently defined for this endpoint."
                           >
                             <div className="space-y-2">
                               {selectedCapability.actions.map((action, index) => (
@@ -539,12 +539,12 @@ export function Generators({ project }: { project: ProjectDocument }) {
                         className="space-y-6"
                         onMouseEnter={() => setInspectedTab("verification")}
                       >
-                        <TabIntro text="Define the readback or post-action checks that determine whether this behaviour genuinely reached the intended final state." />
+                        <TabIntro text="Define the readback or post-action checks that determine whether this endpoint genuinely reached the intended final state." />
 
                         <div className="space-y-0">
                           <CapabilityField
                             label="Verification Rule"
-                            description="Readback structure currently defined for this behaviour."
+                            description="Readback structure currently defined for this endpoint."
                           >
                             {selectedCapability.verification ? (
                               <div className="space-y-2 text-sm">
@@ -563,7 +563,7 @@ export function Generators({ project }: { project: ProjectDocument }) {
                               </div>
                             ) : (
                               <div className="text-sm text-muted-foreground">
-                                This behaviour does not currently define verification.
+                                This endpoint does not currently define verification.
                               </div>
                             )}
                           </CapabilityField>
@@ -574,7 +574,7 @@ export function Generators({ project }: { project: ProjectDocument }) {
                 ) : (
                   <div className="flex h-full items-center justify-center">
                     <div className="max-w-xl text-center">
-                      <div className="text-sm font-medium">No behaviour selected</div>
+                      <div className="text-sm font-medium">No endpoint selected</div>
                       <p className="mt-2 text-sm leading-6 text-muted-foreground">
                         Choose a capability from the sidebar to inspect its summary, inputs,
                         output handling, execution steps, and verification.

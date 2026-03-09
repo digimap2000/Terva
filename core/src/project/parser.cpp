@@ -377,6 +377,15 @@ convert_named_string_list(
     }
     project.product_connector = *connector;
   }
+  if (!source.product_name().empty()) {
+    project.product_name = source.product_name();
+  }
+  if (!source.product_image_path().empty()) {
+    project.product_image_path = source.product_image_path();
+  }
+  if (!source.product_category_icon().empty()) {
+    project.product_category_icon = source.product_category_icon();
+  }
 
   if (source.has_product_http()) {
     if (!source.product_http().version().empty()) {
@@ -796,6 +805,15 @@ proto::ProjectDefinition to_proto_project(const project_definition& project) {
         target.set_product_connector(proto::PRODUCT_CONNECTOR_UART);
         break;
     }
+  }
+  if (project.product_name.has_value()) {
+    target.set_product_name(*project.product_name);
+  }
+  if (project.product_image_path.has_value()) {
+    target.set_product_image_path(*project.product_image_path);
+  }
+  if (project.product_category_icon.has_value()) {
+    target.set_product_category_icon(*project.product_category_icon);
   }
   if (project.product_http.version.has_value() || project.product_http.tls_enabled ||
       !project.product_http.mandatory_headers.empty()) {

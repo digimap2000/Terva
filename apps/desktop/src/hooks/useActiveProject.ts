@@ -29,6 +29,11 @@ export interface RecentProject {
   file_name: string;
   display_name: string;
   description: string | null;
+  mcp_transports: string[];
+  product_connector: string;
+  product_name: string;
+  product_image_path: string;
+  product_category_icon: string;
   backend_count: number;
   capability_count: number;
   modified_at_ms: number | null;

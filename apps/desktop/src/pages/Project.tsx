@@ -13,6 +13,7 @@ import {
   ServerVisualFrame,
   SystemBridgeVisual,
 } from "@/components/project-visuals/server-visuals";
+import { productCategoryIconOptions } from "@/components/project-visuals/product-avatar";
 import { projectActivity } from "@/lib/activity";
 import type { NamedValue, ProjectDocument, ProjectMetadataUpdate } from "@/lib/tauri";
 import type { RuntimeState } from "@/hooks/useActiveProject";
@@ -31,6 +32,9 @@ interface ProjectFormState {
   project_description: string;
   mcp_transports: string[];
   product_connector: string;
+  product_name: string;
+  product_image_path: string;
+  product_category_icon: string;
   product_http_version: string;
   product_http_tls_enabled: boolean;
   product_http_mandatory_headers_text: string;
@@ -83,6 +87,27 @@ const fieldHelp: Record<ProjectFieldKey, FieldHelp> = {
     explanation:
       "Use this to declare how the bridged product is reached. This is separate from MCP itself and captures the global connection shape of the product side of the bridge.",
     example: "http",
+  },
+  product_name: {
+    label: "Product Name",
+    summary: "Friendly identity for the downstream product this bridge connects to.",
+    explanation:
+      "Use this when you want the project to carry a clear user-facing name for the bridged product itself. This is separate from the Terva project name and separate from the MCP server name.",
+    example: "Living Room Streamer",
+  },
+  product_image_path: {
+    label: "Product Image",
+    summary: "Optional image path used as the avatar for this product.",
+    explanation:
+      "Point this at a local image file when you want the project to show a recognisable product image. If empty, the assigned category icon will be used instead.",
+    example: "/Users/andys/Pictures/streamer.png",
+  },
+  product_category_icon: {
+    label: "Category Icon",
+    summary: "Fallback category icon used when no product image is provided.",
+    explanation:
+      "Choose a simple category icon that can stand in for the product in cards, menus, and other overview surfaces when no image is available.",
+    example: "speaker",
   },
   product_http_version: {
     label: "HTTP Version",
@@ -183,6 +208,9 @@ function toFormState(project: ProjectDocument): ProjectFormState {
       ? project.mcp_transports
       : ["streamable_http"],
     product_connector: project.product_connector || "http",
+    product_name: project.product_name || "",
+    product_image_path: project.product_image_path || "",
+    product_category_icon: project.product_category_icon || "device",
     product_http_version: project.product_http?.version ?? "1.1",
     product_http_tls_enabled: project.product_http?.tls_enabled ?? false,
     product_http_mandatory_headers_text: headersToText(
@@ -233,6 +261,9 @@ function toMetadataUpdate(form: ProjectFormState): ProjectMetadataUpdate {
     project_description: form.project_description,
     mcp_transports: form.mcp_transports,
     product_connector: form.product_connector,
+    product_name: form.product_name,
+    product_image_path: form.product_image_path,
+    product_category_icon: form.product_category_icon,
     product_http_version: form.product_http_version,
     product_http_tls_enabled: form.product_http_tls_enabled,
     product_http_mandatory_headers: headersFromText(form.product_http_mandatory_headers_text),
@@ -949,6 +980,73 @@ export function Project({
                             onInspect={() => setInspectedField("product_connector")}
                             onChange={(next) => updateField("product_connector", next)}
                           />
+                        </Field>
+
+                        <Field
+                          fieldId="product_name"
+                          label="Product Name"
+                          description="Friendly name for the downstream product this project bridges to."
+                          onInspect={setInspectedField}
+                        >
+                          <Input
+                            value={form.product_name}
+                            disabled={loading}
+                            onFocus={() => setInspectedField("product_name")}
+                            onChange={(event) => updateField("product_name", event.target.value)}
+                            placeholder="Living Room Streamer"
+                          />
+                        </Field>
+
+                        <Field
+                          fieldId="product_image_path"
+                          label="Product Image"
+                          description="Optional local image path used as the product avatar in workspace views."
+                          onInspect={setInspectedField}
+                        >
+                          <Input
+                            value={form.product_image_path}
+                            disabled={loading}
+                            onFocus={() => setInspectedField("product_image_path")}
+                            onChange={(event) =>
+                              updateField("product_image_path", event.target.value)
+                            }
+                            placeholder="/Users/andys/Pictures/device.png"
+                          />
+                        </Field>
+
+                        <Field
+                          fieldId="product_category_icon"
+                          label="Category Icon"
+                          description="Fallback icon used when no product image is provided."
+                          onInspect={setInspectedField}
+                        >
+                          <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-4">
+                            {productCategoryIconOptions.map((option) => {
+                              const selected = form.product_category_icon === option.id;
+                              const Icon = option.icon;
+                              return (
+                                <button
+                                  key={option.id}
+                                  type="button"
+                                  disabled={loading}
+                                  onMouseEnter={() => setInspectedField("product_category_icon")}
+                                  onFocus={() => setInspectedField("product_category_icon")}
+                                  onClick={() => updateField("product_category_icon", option.id)}
+                                  className={[
+                                    "flex items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors",
+                                    selected
+                                      ? "border-primary/40 bg-primary/10 text-foreground"
+                                      : "border-border/70 bg-background/70 text-muted-foreground hover:bg-secondary/60",
+                                  ].join(" ")}
+                                >
+                                  <div className="flex size-9 items-center justify-center rounded-xl border border-border/70 bg-background/80">
+                                    <Icon size={16} />
+                                  </div>
+                                  <span className="text-sm font-medium">{option.label}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
                         </Field>
 
                         {form.product_connector === "http" ? (

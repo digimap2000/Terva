@@ -75,6 +75,9 @@ export interface ProjectInspection {
   description: string;
   mcp_transports: string[];
   product_connector: string;
+  product_name: string;
+  product_image_path: string;
+  product_category_icon: string;
   product_http: ProductHttpSettings;
   product_uart: ProductUartSettings;
   mcp_server: McpServerMetadata;
@@ -91,6 +94,9 @@ export interface ProjectDocument {
   server_runnable: boolean;
   mcp_transports: string[];
   product_connector: string;
+  product_name: string;
+  product_image_path: string;
+  product_category_icon: string;
   product_http: ProductHttpSettings;
   product_uart: ProductUartSettings;
   mcp_server: McpServerMetadata;
@@ -110,6 +116,9 @@ export interface ProjectSummary {
   server_runnable: boolean;
   mcp_transports: string[];
   product_connector: string;
+  product_name: string;
+  product_image_path: string;
+  product_category_icon: string;
   parse_error: string;
   backend_count: number;
   capability_count: number;
@@ -122,6 +131,9 @@ export interface ProjectMetadataUpdate {
   project_description: string;
   mcp_transports: string[];
   product_connector: string;
+  product_name: string;
+  product_image_path: string;
+  product_category_icon: string;
   product_http_version: string;
   product_http_tls_enabled: boolean;
   product_http_mandatory_headers: NamedValue[];

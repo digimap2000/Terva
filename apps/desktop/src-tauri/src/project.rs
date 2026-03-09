@@ -166,6 +166,12 @@ pub struct ProjectDocument {
     pub mcp_transports: Vec<String>,
     pub product_connector: String,
     #[serde(default)]
+    pub product_name: String,
+    #[serde(default)]
+    pub product_image_path: String,
+    #[serde(default)]
+    pub product_category_icon: String,
+    #[serde(default)]
     pub product_http: ProductHttpSettings,
     #[serde(default)]
     pub product_uart: ProductUartSettings,
@@ -189,6 +195,12 @@ pub struct ProjectSummary {
     #[serde(default)]
     pub mcp_transports: Vec<String>,
     pub product_connector: String,
+    #[serde(default)]
+    pub product_name: String,
+    #[serde(default)]
+    pub product_image_path: String,
+    #[serde(default)]
+    pub product_category_icon: String,
     pub parse_error: String,
     pub backend_count: usize,
     pub capability_count: usize,
@@ -214,6 +226,9 @@ pub struct ProjectMetadataUpdate {
     pub project_description: String,
     pub mcp_transports: Vec<String>,
     pub product_connector: String,
+    pub product_name: String,
+    pub product_image_path: String,
+    pub product_category_icon: String,
     pub product_http_version: String,
     pub product_http_tls_enabled: bool,
     #[serde(default)]
@@ -336,6 +351,7 @@ description: "New Terva project."
 
 mcp_transports: MCP_TRANSPORT_STREAMABLE_HTTP
 product_connector: PRODUCT_CONNECTOR_HTTP
+product_category_icon: "device"
 
 product_http {{
   version: "1.1"
