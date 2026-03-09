@@ -13,6 +13,7 @@ pub mod ffi {
         fn close_document(self: Pin<&mut DesktopCore>) -> String;
         fn generate_project_name(self: Pin<&mut DesktopCore>) -> String;
         fn update_project_metadata(self: Pin<&mut DesktopCore>, metadata_json: &str) -> String;
+        fn update_endpoint_command(self: Pin<&mut DesktopCore>, update_json: &str) -> String;
 
         fn summarize_document(self: &DesktopCore, path: &str) -> String;
 

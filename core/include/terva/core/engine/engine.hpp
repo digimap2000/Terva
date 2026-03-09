@@ -26,6 +26,8 @@ class engine final {
   [[nodiscard]] std::expected<json, std::string> generate_project_name();
   [[nodiscard]] std::expected<json, std::string> update_project_metadata(
       const json& metadata);
+  [[nodiscard]] std::expected<json, std::string> update_endpoint_command(
+      const json& update);
 
   [[nodiscard]] std::expected<json, std::string> summarize_project_file(
       const std::filesystem::path& path) const;

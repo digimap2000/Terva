@@ -20,6 +20,17 @@ export interface InspectionAction {
   success_statuses: number[];
 }
 
+export interface InspectionOutputField {
+  name: string;
+  source: string;
+  transform: string;
+  json_pointer?: string;
+  input_name?: string;
+  value?: unknown;
+  default_value?: unknown;
+  required: boolean;
+}
+
 export interface InspectionVerification {
   action_id: string;
   attempts: number;
@@ -41,6 +52,7 @@ export interface InspectionCapability {
   input_schema_keys: string[];
   main_action_id: string;
   actions: InspectionAction[];
+  output_fields: InspectionOutputField[];
   verification: InspectionVerification | null;
 }
 
@@ -148,6 +160,15 @@ export interface ProjectMetadataUpdate {
   mcp_instructions: string;
 }
 
+export interface EndpointCommandUpdate {
+  capability_id: string;
+  method: string;
+  path: string;
+  response_mode: string;
+  response_field_name: string;
+  response_json_pointer: string;
+}
+
 export interface NewProjectPreview {
   friendly_name: string;
   filesystem_name: string;
@@ -243,4 +264,10 @@ export async function updateProjectMetadata(
   update: ProjectMetadataUpdate,
 ): Promise<ProjectDocument> {
   return invoke<ProjectDocument>("update_project_metadata", { update });
+}
+
+export async function updateEndpointCommand(
+  update: EndpointCommandUpdate,
+): Promise<ProjectDocument> {
+  return invoke<ProjectDocument>("update_endpoint_command", { update });
 }

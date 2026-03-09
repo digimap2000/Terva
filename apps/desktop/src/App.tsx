@@ -22,6 +22,7 @@ import { useZoom } from "@/hooks/use-zoom";
 import {
   getNewProjectPreview,
   pickProjectDirectory,
+  type EndpointCommandUpdate,
   type NewProjectPreview,
   type ProjectDocument,
   type ProjectMetadataUpdate,
@@ -41,6 +42,7 @@ interface WorkspaceProps {
   onOpenProject: () => void;
   onOpenRecentProject: (path: string) => void;
   onRemoveRecentProject: (path: string) => Promise<boolean>;
+  onSaveEndpointCommand: (update: EndpointCommandUpdate) => Promise<ProjectDocument | null>;
   onSaveProjectMetadata: (update: ProjectMetadataUpdate) => Promise<ProjectDocument | null>;
   onStartServer: () => Promise<boolean>;
   onStopServer: () => Promise<boolean>;
@@ -77,6 +79,7 @@ function Workspace({
   onOpenProject,
   onOpenRecentProject,
   onRemoveRecentProject,
+  onSaveEndpointCommand,
   onSaveProjectMetadata,
   onStartServer,
   onStopServer,
@@ -113,7 +116,16 @@ function Workspace({
             />
           }
         />
-        <Route path="/endpoints" element={<Generators project={project} />} />
+        <Route
+          path="/endpoints"
+          element={
+            <Generators
+              project={project}
+              loading={loading}
+              onSaveEndpointCommand={onSaveEndpointCommand}
+            />
+          }
+        />
         <Route path="/labs" element={<Experimental project={project} />} />
         <Route path="/inspector" element={<Inspector project={project} />} />
         <Route path="/auth" element={<Auth />} />
@@ -202,6 +214,7 @@ export default function App() {
     startServer,
     stopServer,
     saveProjectMetadata,
+    saveEndpointCommand,
   } = useActiveProject();
   const { zoom } = useZoom();
   const navigate = useNavigate();
@@ -360,11 +373,12 @@ export default function App() {
               serverUrl={serverUrl}
               onCreateProject={openNewProjectDialog}
               onOpenProject={handleOpenProject}
-              onOpenRecentProject={handleOpenRecentProject}
-              onRemoveRecentProject={removeProject}
-              onSaveProjectMetadata={saveProjectMetadata}
-              onStartServer={startServer}
-              onStopServer={stopServer}
+          onOpenRecentProject={handleOpenRecentProject}
+          onRemoveRecentProject={removeProject}
+          onSaveEndpointCommand={saveEndpointCommand}
+          onSaveProjectMetadata={saveProjectMetadata}
+          onStartServer={startServer}
+          onStopServer={stopServer}
             />
           ) : (
             <NoProjectShell

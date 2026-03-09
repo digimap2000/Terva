@@ -17,6 +17,7 @@ class DesktopCore final {
   rust::String close_document();
   rust::String generate_project_name();
   rust::String update_project_metadata(rust::Str metadata_json);
+  rust::String update_endpoint_command(rust::Str update_json);
 
   rust::String summarize_document(rust::Str path) const;
 

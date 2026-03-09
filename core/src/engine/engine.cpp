@@ -8,6 +8,7 @@
 #include "terva/core/project/validator.hpp"
 
 #include <dts/naming.hpp>
+#include <algorithm>
 #include <fstream>
 #include <mutex>
 #include <memory>
@@ -112,6 +113,29 @@ struct managed_http_server final {
   };
 }
 
+[[nodiscard]] json output_field_payload(
+    const project::output_field_mapping& output) {
+  json payload{
+      {"name", output.name},
+      {"source", project::to_string(output.source)},
+      {"transform", project::to_string(output.transform)},
+      {"required", output.required},
+  };
+  if (output.json_pointer.has_value()) {
+    payload["json_pointer"] = *output.json_pointer;
+  }
+  if (output.input_name.has_value()) {
+    payload["input_name"] = *output.input_name;
+  }
+  if (output.value.has_value()) {
+    payload["value"] = *output.value;
+  }
+  if (output.default_value.has_value()) {
+    payload["default_value"] = *output.default_value;
+  }
+  return payload;
+}
+
 [[nodiscard]] json expectation_payload(
     const project::value_expectation& expectation) {
   json payload{
@@ -179,6 +203,10 @@ struct managed_http_server final {
     for (const auto& action : capability.actions) {
       actions.push_back(action_payload(action));
     }
+    json output_fields = json::array();
+    for (const auto& output : capability.output_fields) {
+      output_fields.push_back(output_field_payload(output));
+    }
 
     json tool_schema_keys = json::array();
     const auto properties =
@@ -195,6 +223,7 @@ struct managed_http_server final {
         {"input_schema_keys", std::move(tool_schema_keys)},
         {"main_action_id", capability.main_action_id},
         {"actions", std::move(actions)},
+        {"output_fields", std::move(output_fields)},
     };
     if (capability.verification.has_value()) {
       capability_payload["verification"] =
@@ -621,6 +650,127 @@ std::expected<json, std::string> engine::update_project_metadata(
   assign_optional_int("product_uart_baud_rate", updated.product_uart.baud_rate);
   assign_optional_string("product_uart_port", updated.product_uart.port);
   assign_optional_string("product_uart_framing", updated.product_uart.framing);
+
+  auto rendered = project::render_project_text(updated);
+  if (!rendered) {
+    return std::unexpected(rendered.error());
+  }
+  if (const auto written = write_file(impl_->document->source_path, *rendered);
+      !written) {
+    return std::unexpected(written.error());
+  }
+
+  return load_document(impl_->document->source_path, std::move(*rendered));
+}
+
+std::expected<json, std::string> engine::update_endpoint_command(
+    const json& update) {
+  if (!impl_ || !impl_->document.has_value()) {
+    return std::unexpected("no active document is loaded");
+  }
+  if (!impl_->document->project.has_value()) {
+    return std::unexpected(
+        impl_->document->parse_error.value_or("active document could not be parsed"));
+  }
+  if (!update.is_object()) {
+    return std::unexpected("endpoint command update must be a JSON object");
+  }
+
+  const auto capability_id_it = update.find("capability_id");
+  if (capability_id_it == update.end() || !capability_id_it->is_string() ||
+      capability_id_it->get<std::string>().empty()) {
+    return std::unexpected("endpoint command update must include capability_id");
+  }
+
+  const auto method_it = update.find("method");
+  if (method_it == update.end() || !method_it->is_string()) {
+    return std::unexpected("endpoint command update must include method");
+  }
+
+  const auto path_it = update.find("path");
+  if (path_it == update.end() || !path_it->is_string()) {
+    return std::unexpected("endpoint command update must include path");
+  }
+
+  const auto response_mode_it = update.find("response_mode");
+  if (response_mode_it == update.end() || !response_mode_it->is_string()) {
+    return std::unexpected("endpoint command update must include response_mode");
+  }
+
+  auto updated = *impl_->document->project;
+  const auto capability_id = capability_id_it->get<std::string>();
+  const auto parsed_method =
+      project::parse_http_method(method_it->get<std::string>());
+  if (!parsed_method.has_value()) {
+    return std::unexpected("unsupported HTTP method: " +
+                           method_it->get<std::string>());
+  }
+
+  const auto response_mode = response_mode_it->get<std::string>();
+  std::string response_field_name;
+  std::string response_json_pointer;
+  if (response_mode == "mapped_field") {
+    const auto field_name_it = update.find("response_field_name");
+    if (field_name_it == update.end() || !field_name_it->is_string() ||
+        field_name_it->get<std::string>().empty()) {
+      return std::unexpected(
+          "mapped_field response mode must include response_field_name");
+    }
+    const auto pointer_it = update.find("response_json_pointer");
+    if (pointer_it == update.end() || !pointer_it->is_string() ||
+        pointer_it->get<std::string>().empty()) {
+      return std::unexpected(
+          "mapped_field response mode must include response_json_pointer");
+    }
+    response_field_name = field_name_it->get<std::string>();
+    response_json_pointer = pointer_it->get<std::string>();
+  } else if (response_mode != "raw_response") {
+    return std::unexpected("unsupported response mode: " + response_mode);
+  }
+
+  auto capability_it = std::find_if(
+      updated.capabilities.begin(), updated.capabilities.end(),
+      [&capability_id](const project::capability_definition& capability) {
+        return capability.id == capability_id;
+      });
+  if (capability_it == updated.capabilities.end()) {
+    return std::unexpected("capability was not found: " + capability_id);
+  }
+
+  if (capability_it->actions.empty()) {
+    return std::unexpected("capability has no actions to update");
+  }
+
+  auto action_it = std::find_if(
+      capability_it->actions.begin(), capability_it->actions.end(),
+      [&capability_it](const project::http_action_definition& action) {
+        return action.id == capability_it->main_action_id;
+      });
+  if (action_it == capability_it->actions.end()) {
+    action_it = capability_it->actions.begin();
+    capability_it->main_action_id = action_it->id;
+  }
+
+  action_it->method = *parsed_method;
+  action_it->path_template = path_it->get<std::string>();
+
+  if (response_mode == "raw_response") {
+    capability_it->output_fields.clear();
+  } else {
+    capability_it->output_fields = {
+        project::output_field_mapping{
+            .name = std::move(response_field_name),
+            .source = project::output_source::action,
+            .transform = project::output_transform::none,
+            .json_pointer = std::move(response_json_pointer),
+            .input_name = std::nullopt,
+            .value = std::nullopt,
+            .normalize = {},
+            .default_value = std::nullopt,
+            .required = false,
+        },
+    };
+  }
 
   auto rendered = project::render_project_text(updated);
   if (!rendered) {

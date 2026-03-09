@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import {
-  ChevronDown,
-  EllipsisVertical,
-  FileCode2,
-} from "lucide-react";
+import { ChevronDown, EllipsisVertical, FileCode2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { behaviourActivity } from "@/lib/activity";
 import { WorkbenchShell } from "@/components/layout/WorkbenchShell";
-import type { InspectionCapability, ProjectDocument } from "@/lib/tauri";
+import type {
+  EndpointCommandUpdate,
+  InspectionAction,
+  InspectionCapability,
+  ProjectDocument,
+} from "@/lib/tauri";
 import { cn } from "@/lib/utils";
 import {
   Collapsible,
@@ -23,8 +25,9 @@ interface CapabilityCategory {
   capabilities: InspectionCapability[];
 }
 
-type EndpointTab = "summary" | "inputs" | "output" | "steps" | "verification";
+type EndpointTab = "command" | "inputs" | "execution" | "testing";
 type DiagnosticTab = "info" | "warnings" | "errors";
+type ResponseMode = "raw_response" | "mapped_field";
 
 interface FieldHelp {
   label: string;
@@ -33,46 +36,78 @@ interface FieldHelp {
   example: string;
 }
 
+interface EndpointCommandFormState {
+  method: string;
+  path: string;
+  response_mode: ResponseMode;
+  response_field_name: string;
+  response_json_pointer: string;
+}
+
 const actionButtonClass =
   "flex size-5 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground";
 
 const tabHelp: Record<EndpointTab, FieldHelp> = {
-  summary: {
-    label: "Summary",
-    summary: "High-level identity and shape of the selected endpoint.",
+  command: {
+    label: "Command",
+    summary: "The minimum HTTP command definition needed to make the endpoint run.",
     explanation:
-      "Use this surface to understand the endpoint at a glance: its MCP tool name, category, main action, and overall execution shape. This is the stable top-level overview before the user edits deeper details.",
-    example: "Tool enter_active writes power state and verifies the final system value.",
+      "This tab defines the backend request the endpoint performs and how the MCP result is shaped from the returned API payload. It is the shortest path from endpoint idea to working command.",
+    example: "POST /power/on and return the value at /state as result.",
   },
   inputs: {
     label: "Inputs",
-    summary: "Fields the endpoint accepts from MCP callers.",
+    summary: "The MCP-facing arguments callers can pass into the endpoint.",
     explanation:
-      "This tab is where the input contract of the selected capability will be defined. For now it shows the fields surfaced from inspection so the shape of the command is visible and ready for editing later.",
-    example: "set_volume exposes a single level field; enter_active exposes no explicit inputs.",
+      "Use this area for the caller contract rather than the downstream API call itself. Keep inputs narrow and explicit so the command stays understandable to users and clients.",
+    example: "set_volume accepts a level input and feeds it into the request path or body.",
   },
-  output: {
-    label: "Output",
-    summary: "How backend responses are parsed into the endpoint result.",
+  execution: {
+    label: "Execution",
+    summary: "The deeper orchestration behind the command once the basics are in place.",
     explanation:
-      "Keep the output surface deterministic and explicit. This is where field extraction, normalization, and user-facing result shaping will be configured as the desktop editor grows.",
-    example: "Map backend system=lona to normalized_state=standby.",
+      "This tab is for multi-step work, prerequisite checks, secondary calls, and backend nuance that sits behind the single command the user sees.",
+    example: "Write state first, then perform a follow-up readback action on the same backend.",
   },
-  steps: {
-    label: "Steps",
-    summary: "Ordered backend actions and prerequisite flow for the endpoint.",
+  testing: {
+    label: "Testing",
+    summary: "Verification and readback rules that prove the command really succeeded.",
     explanation:
-      "This is the place for the write action, any prerequisite/setup stages, and multi-step backend orchestration. Even before editing is wired, the user should be able to read the current structure cleanly here.",
-    example: "PUT /power?system=on followed by a GET readback.",
-  },
-  verification: {
-    label: "Verification",
-    summary: "Readback and post-action checks that determine success.",
-    explanation:
-      "Verification defines what must be observed after the action completes. This is where expected raw values, normalized interpretations, and retry timing belong.",
-    example: "GET /power until system == on or verification fails.",
+      "Use this area to define the post-action checks and testing shape for the endpoint. It is where success stops being assumed and becomes observable.",
+    example: "GET /power until /state == on with retries and a short settle delay.",
   },
 };
+
+const httpMethodOptions = [
+  {
+    id: "GET",
+    label: "GET",
+    description: "Read or fetch state from the product API.",
+  },
+  {
+    id: "POST",
+    label: "POST",
+    description: "Trigger an action or create a downstream resource.",
+  },
+  {
+    id: "PUT",
+    label: "PUT",
+    description: "Replace or set a known downstream resource state.",
+  },
+] as const;
+
+const responseModeOptions = [
+  {
+    id: "raw_response",
+    label: "Raw Response",
+    description: "Return the backend JSON payload as-is.",
+  },
+  {
+    id: "mapped_field",
+    label: "Mapped Field",
+    description: "Extract one value from the backend JSON and expose it explicitly.",
+  },
+] as const;
 
 function capabilitySummary(capability: InspectionCapability) {
   return `${capability.actions.length} action${
@@ -100,8 +135,62 @@ function capabilityCategoryFor(capability: InspectionCapability) {
   };
 }
 
-function categoryLabelFor(capability: InspectionCapability) {
-  return capabilityCategoryFor(capability).label;
+function mainActionFor(capability: InspectionCapability | null) {
+  if (!capability) {
+    return null;
+  }
+
+  return (
+    capability.actions.find((action) => action.id === capability.main_action_id) ??
+    capability.actions[0] ??
+    null
+  );
+}
+
+function toCommandFormState(capability: InspectionCapability): EndpointCommandFormState {
+  const mainAction = mainActionFor(capability);
+  const mappedField = capability.output_fields.find(
+    (output) => output.source === "action" && typeof output.json_pointer === "string",
+  );
+
+  return {
+    method: mainAction?.method ?? "GET",
+    path: mainAction?.path ?? "/",
+    response_mode: mappedField ? "mapped_field" : "raw_response",
+    response_field_name: mappedField?.name ?? "result",
+    response_json_pointer: mappedField?.json_pointer ?? "/",
+  };
+}
+
+function toEndpointUpdate(
+  capabilityId: string,
+  form: EndpointCommandFormState,
+): EndpointCommandUpdate {
+  return {
+    capability_id: capabilityId,
+    method: form.method,
+    path: form.path,
+    response_mode: form.response_mode,
+    response_field_name: form.response_mode === "mapped_field" ? form.response_field_name : "",
+    response_json_pointer:
+      form.response_mode === "mapped_field" ? form.response_json_pointer : "",
+  };
+}
+
+function joinUrl(baseUrl: string, path: string) {
+  if (!baseUrl) {
+    return path;
+  }
+  if (!path) {
+    return baseUrl;
+  }
+  if (baseUrl.endsWith("/") && path.startsWith("/")) {
+    return `${baseUrl.slice(0, -1)}${path}`;
+  }
+  if (!baseUrl.endsWith("/") && !path.startsWith("/")) {
+    return `${baseUrl}/${path}`;
+  }
+  return `${baseUrl}${path}`;
 }
 
 function SectionHeading({ title }: { title: string }) {
@@ -174,12 +263,64 @@ function TabIntro({ text }: { text: string }) {
   return <p className="text-sm leading-6 text-muted-foreground">{text}</p>;
 }
 
-export function Generators({ project }: { project: ProjectDocument }) {
+function OptionCards({
+  value,
+  options,
+  disabled,
+  onChange,
+}: {
+  value: string;
+  options: ReadonlyArray<{ id: string; label: string; description: string }>;
+  disabled: boolean;
+  onChange: (next: string) => void;
+}) {
+  return (
+    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      {options.map((option) => {
+        const selected = value === option.id;
+        return (
+          <button
+            key={option.id}
+            type="button"
+            disabled={disabled}
+            onClick={() => onChange(option.id)}
+            className={cn(
+              "rounded-xl border px-4 py-4 text-left transition-colors",
+              selected
+                ? "border-primary/40 bg-primary/10 text-foreground"
+                : "border-border/70 bg-background/70 text-muted-foreground hover:bg-secondary/60",
+              disabled && "cursor-default opacity-60",
+            )}
+          >
+            <div className="text-sm font-medium">{option.label}</div>
+            <div className="mt-1 text-xs leading-6">{option.description}</div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+export function Generators({
+  project,
+  loading,
+  onSaveEndpointCommand,
+}: {
+  project: ProjectDocument;
+  loading: boolean;
+  onSaveEndpointCommand: (update: EndpointCommandUpdate) => Promise<ProjectDocument | null>;
+}) {
   const capabilities = project.inspection?.capabilities ?? [];
+  const backends = project.inspection?.backends ?? [];
   const [selectedId, setSelectedId] = useState(capabilities[0]?.id ?? "");
-  const [activeTab, setActiveTab] = useState<EndpointTab>("summary");
+  const [activeTab, setActiveTab] = useState<EndpointTab>("command");
   const [diagnosticTab, setDiagnosticTab] = useState<DiagnosticTab>("info");
-  const [inspectedTab, setInspectedTab] = useState<EndpointTab>("summary");
+  const [inspectedTab, setInspectedTab] = useState<EndpointTab>("command");
+  const [commandForm, setCommandForm] = useState<EndpointCommandFormState | null>(
+    capabilities[0] ? toCommandFormState(capabilities[0]) : null,
+  );
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [lastFailedSaveSignature, setLastFailedSaveSignature] = useState<string | null>(null);
 
   useEffect(() => {
     const firstCapability = capabilities[0];
@@ -216,6 +357,108 @@ export function Generators({ project }: { project: ProjectDocument }) {
     return capabilities.find((item) => item.id === selectedId) ?? capabilities[0] ?? null;
   }, [capabilities, selectedId]);
 
+  const selectedMainAction = useMemo(() => {
+    return mainActionFor(selectedCapability);
+  }, [selectedCapability]);
+
+  const selectedBackend = useMemo(() => {
+    if (!selectedMainAction) {
+      return null;
+    }
+    return backends.find((backend) => backend.id === selectedMainAction.backend_id) ?? null;
+  }, [backends, selectedMainAction]);
+
+  useEffect(() => {
+    if (!selectedCapability) {
+      setCommandForm(null);
+      setSaveError(null);
+      setLastFailedSaveSignature(null);
+      return;
+    }
+
+    setCommandForm(toCommandFormState(selectedCapability));
+    setSaveError(null);
+    setLastFailedSaveSignature(null);
+  }, [selectedCapability]);
+
+  const isCommandDirty = useMemo(() => {
+    if (!selectedCapability || !commandForm) {
+      return false;
+    }
+    return JSON.stringify(commandForm) !== JSON.stringify(toCommandFormState(selectedCapability));
+  }, [commandForm, selectedCapability]);
+
+  useEffect(() => {
+    if (loading || !selectedCapability || !commandForm || !isCommandDirty) {
+      return;
+    }
+    if (!commandForm.method.trim() || !commandForm.path.trim()) {
+      return;
+    }
+    if (
+      commandForm.response_mode === "mapped_field" &&
+      (!commandForm.response_field_name.trim() || !commandForm.response_json_pointer.trim())
+    ) {
+      return;
+    }
+
+    const update = toEndpointUpdate(selectedCapability.id, commandForm);
+    const signature = JSON.stringify(update);
+    if (lastFailedSaveSignature === signature) {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      void (async () => {
+        setSaveError(null);
+        const updated = await onSaveEndpointCommand(update);
+        if (!updated) {
+          setSaveError("Unable to apply endpoint command changes.");
+          setLastFailedSaveSignature(signature);
+        } else {
+          setLastFailedSaveSignature(null);
+        }
+      })();
+    }, 400);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [
+    commandForm,
+    isCommandDirty,
+    lastFailedSaveSignature,
+    loading,
+    onSaveEndpointCommand,
+    selectedCapability,
+  ]);
+
+  function updateCommandField<Key extends keyof EndpointCommandFormState>(
+    key: Key,
+    value: EndpointCommandFormState[Key],
+  ) {
+    setCommandForm((current) => {
+      if (!current) {
+        return current;
+      }
+      return {
+        ...current,
+        [key]: value,
+      };
+    });
+  }
+
+  const fullUrlPreview = commandForm
+    ? joinUrl(selectedBackend?.base_url ?? "", commandForm.path.trim())
+    : "";
+
+  const responsePreview =
+    commandForm?.response_mode === "mapped_field"
+      ? `{ ${commandForm.response_field_name || "result"}: response${
+          commandForm.response_json_pointer || "/"
+        } }`
+      : "Return the backend response body directly.";
+
   return (
     <WorkbenchShell
       sidebarStorageKey="terva-endpoints-sidebar-v1"
@@ -244,8 +487,8 @@ export function Generators({ project }: { project: ProjectDocument }) {
                         isActive={selectedCapability?.id === capability.id}
                         onClick={() => {
                           setSelectedId(capability.id);
-                          setActiveTab("summary");
-                          setInspectedTab("summary");
+                          setActiveTab("command");
+                          setInspectedTab("command");
                         }}
                       />
                     ))}
@@ -332,9 +575,9 @@ export function Generators({ project }: { project: ProjectDocument }) {
                 description="Non-blocking findings derived from validation of the active capability."
               >
                 <div className="text-sm leading-6 text-muted-foreground">
-                  Capability-scoped warnings are not surfaced yet. This panel is reserved
-                  for advisory findings, suspicious configuration, and incomplete modelling
-                  details.
+                  Command-specific warnings are not surfaced yet. This panel is reserved for
+                  advisory findings such as brittle mappings, suspicious request definitions, and
+                  incomplete modelling.
                 </div>
               </CapabilityField>
             </div>
@@ -347,9 +590,9 @@ export function Generators({ project }: { project: ProjectDocument }) {
                 description="Blocking issues derived from validation of the active capability."
               >
                 <div className="text-sm leading-6 text-muted-foreground">
-                  Capability-scoped errors are not surfaced yet. This panel will become
-                  the place for broken references, invalid action definitions, and other
-                  issues that prevent the endpoint from running safely.
+                  Command-specific errors are not surfaced yet. This panel will become the place
+                  for broken action references, invalid response mappings, and other issues that
+                  prevent the endpoint from running safely.
                 </div>
               </CapabilityField>
             </div>
@@ -360,231 +603,319 @@ export function Generators({ project }: { project: ProjectDocument }) {
       sidebarMinSize="10%"
       sidebarMaxSize="30%"
       contentClassName="p-6"
-      mainContent={(sidebarToggle) =>
+      mainContent={(sidebarToggle) => (
         <div className="flex h-full flex-col overflow-hidden">
+          {saveError ? (
+            <div className="mb-6 rounded-xl border border-destructive/30 bg-destructive/8 px-4 py-3 text-sm text-destructive">
+              {saveError}
+            </div>
+          ) : null}
+
           <div className="min-h-0 flex-1">
-                {selectedCapability ? (
-                  <Tabs
-                    value={activeTab}
-                    onValueChange={(value) => {
-                      const next = value as EndpointTab;
-                      setActiveTab(next);
-                      setInspectedTab(next);
-                    }}
-                    className="flex h-full min-h-0 flex-col"
-                  >
-                    <div className="flex items-center gap-3">
-                      {sidebarToggle}
-                      <TabsList variant="line" className="border-0 pb-0">
-                        <TabsTrigger value="summary">Summary</TabsTrigger>
-                        <TabsTrigger value="inputs">Inputs</TabsTrigger>
-                        <TabsTrigger value="output">Output</TabsTrigger>
-                        <TabsTrigger value="steps">Steps</TabsTrigger>
-                        <TabsTrigger value="verification">Verification</TabsTrigger>
-                      </TabsList>
-                    </div>
+            {selectedCapability && commandForm ? (
+              <Tabs
+                value={activeTab}
+                onValueChange={(value) => {
+                  const next = value as EndpointTab;
+                  setActiveTab(next);
+                  setInspectedTab(next);
+                }}
+                className="flex h-full min-h-0 flex-col"
+              >
+                <div className="flex items-center gap-3">
+                  {sidebarToggle}
+                  <TabsList variant="line" className="border-0 pb-0">
+                    <TabsTrigger value="command">Command</TabsTrigger>
+                    <TabsTrigger value="inputs">Inputs</TabsTrigger>
+                    <TabsTrigger value="execution">Execution</TabsTrigger>
+                    <TabsTrigger value="testing">Testing</TabsTrigger>
+                  </TabsList>
+                </div>
 
-                    <TabsContent value="summary" className="min-h-0 flex-1 overflow-auto pt-6">
-                      <div
-                        className="space-y-6"
-                        onMouseEnter={() => setInspectedTab("summary")}
+                <TabsContent value="command" className="min-h-0 flex-1 overflow-auto pt-6">
+                  <div className="space-y-6" onMouseEnter={() => setInspectedTab("command")}>
+                    <TabIntro text="Set up the selected endpoint as a working HTTP command: choose the verb, define the API request path, and decide how the MCP result is built from the backend response." />
+
+                    <div className="space-y-0">
+                      <CapabilityField
+                        label="HTTP Verb"
+                        description="The request method sent for the endpoint's main backend action."
                       >
-                        <TabIntro text="Define the selected endpoint as a clear MCP command: what it is called, how it is grouped, and how the runtime resolves it." />
+                        <OptionCards
+                          value={commandForm.method}
+                          options={httpMethodOptions}
+                          disabled={loading}
+                          onChange={(next) => updateCommandField("method", next)}
+                        />
+                      </CapabilityField>
 
-                        <div className="space-y-0">
-                          <CapabilityField
-                            label="Tool Name"
-                            description="Public MCP-facing name used to invoke this endpoint."
-                          >
-                            <div className="text-sm font-medium">{selectedCapability.tool_name}</div>
-                          </CapabilityField>
-                          <CapabilityField
-                            label="Description"
-                            description="Human-readable explanation of what the endpoint does."
-                          >
-                            <div className="text-sm leading-6 text-muted-foreground">
-                              {selectedCapability.description || "No description defined."}
+                      <CapabilityField
+                        label="URL Command"
+                        description="The backend request path for the main action. This is combined with the selected backend base URL."
+                      >
+                        <div className="space-y-3">
+                          <Input
+                            value={commandForm.path}
+                            disabled={loading}
+                            onChange={(event) => updateCommandField("path", event.target.value)}
+                            placeholder="/power/on"
+                          />
+                          <div className="rounded-xl border border-border/60 bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+                            <div className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
+                              Request Preview
                             </div>
-                          </CapabilityField>
-                          <CapabilityField
-                            label="Category"
-                            description="Current workspace grouping for this capability."
-                          >
-                            <div className="text-sm font-medium">
-                              {categoryLabelFor(selectedCapability)}
+                            <div className="mt-2 font-mono text-xs leading-6">
+                              {commandForm.method} {fullUrlPreview || "No backend URL available"}
                             </div>
-                          </CapabilityField>
-                          <CapabilityField
-                            label="Main Action"
-                            description="Primary action id that represents the endpoint execution."
-                          >
-                            <div className="text-sm font-medium">
-                              {selectedCapability.main_action_id}
+                            <div className="mt-2 text-xs leading-6">
+                              Backend: {selectedBackend?.id ?? selectedMainAction?.backend_id ?? "Unknown"}
+                              {selectedBackend?.base_url
+                                ? ` · Base URL ${selectedBackend.base_url}`
+                                : ""}
                             </div>
-                          </CapabilityField>
+                          </div>
                         </div>
-                      </div>
-                    </TabsContent>
+                      </CapabilityField>
 
-                    <TabsContent value="inputs" className="min-h-0 flex-1 overflow-auto pt-6">
-                      <div
-                        className="space-y-6"
-                        onMouseEnter={() => setInspectedTab("inputs")}
+                      <CapabilityField
+                        label="Response Construction"
+                        description="How the MCP endpoint result is built from the returned backend payload."
                       >
-                        <TabIntro text="Define the explicit input contract for this endpoint. Keep it narrow, typed, and obvious to both users and MCP clients." />
+                        <div className="space-y-4">
+                          <OptionCards
+                            value={commandForm.response_mode}
+                            options={responseModeOptions}
+                            disabled={loading}
+                            onChange={(next) =>
+                              updateCommandField("response_mode", next as ResponseMode)
+                            }
+                          />
 
-                        <div className="space-y-0">
-                          <CapabilityField
-                            label="Input Shape"
-                            description="Fields surfaced from the current inspected input schema."
-                          >
-                            {selectedCapability.input_schema_keys.length > 0 ? (
+                          {commandForm.response_mode === "mapped_field" ? (
+                            <div className="grid gap-4 md:grid-cols-2">
                               <div className="space-y-2">
-                                {selectedCapability.input_schema_keys.map((field) => (
-                                  <div
-                                    key={field}
-                                    className="rounded-lg border border-border/60 px-4 py-3 text-sm"
-                                  >
-                                    <div className="font-medium">{field}</div>
-                                    <div className="mt-1 text-muted-foreground">
-                                      Field-level editing is not wired yet.
-                                    </div>
-                                  </div>
-                                ))}
+                                <label className="text-sm font-medium">Result Field Name</label>
+                                <Input
+                                  value={commandForm.response_field_name}
+                                  disabled={loading}
+                                  onChange={(event) =>
+                                    updateCommandField(
+                                      "response_field_name",
+                                      event.target.value,
+                                    )
+                                  }
+                                  placeholder="result"
+                                />
                               </div>
-                            ) : (
-                              <div className="text-sm text-muted-foreground">
-                                This endpoint currently accepts no explicit input fields.
+                              <div className="space-y-2">
+                                <label className="text-sm font-medium">Response JSON Pointer</label>
+                                <Input
+                                  value={commandForm.response_json_pointer}
+                                  disabled={loading}
+                                  onChange={(event) =>
+                                    updateCommandField(
+                                      "response_json_pointer",
+                                      event.target.value,
+                                    )
+                                  }
+                                  placeholder="/state"
+                                />
                               </div>
-                            )}
-                          </CapabilityField>
-                        </div>
-                      </div>
-                    </TabsContent>
-
-                    <TabsContent value="output" className="min-h-0 flex-1 overflow-auto pt-6">
-                      <div
-                        className="space-y-6"
-                        onMouseEnter={() => setInspectedTab("output")}
-                      >
-                        <TabIntro text="Control how backend responses are parsed and normalized into the final capability result. Raw backend visibility should remain available underneath this layer." />
-
-                        <div className="space-y-0">
-                          <CapabilityField
-                            label="Current Output Model"
-                            description="What the desktop can currently infer about this endpoint's output shaping."
-                          >
-                            <div className="text-sm leading-6 text-muted-foreground">
-                              Output mapping details are not surfaced through the current desktop
-                              inspection model yet. This tab is reserved for field extraction,
-                              normalization, and final result shaping.
                             </div>
-                          </CapabilityField>
-                        </div>
-                      </div>
-                    </TabsContent>
+                          ) : null}
 
-                    <TabsContent value="steps" className="min-h-0 flex-1 overflow-auto pt-6">
-                      <div
-                        className="space-y-6"
-                        onMouseEnter={() => setInspectedTab("steps")}
-                      >
-                        <TabIntro text="Describe the ordered backend actions that implement this endpoint, including any prerequisite or setup work required to make it succeed." />
-
-                        <div className="space-y-0">
-                          <CapabilityField
-                            label="Execution Steps"
-                            description="Ordered backend actions currently defined for this endpoint."
-                          >
-                            <div className="space-y-2">
-                              {selectedCapability.actions.map((action, index) => (
-                                <div
-                                  key={action.id}
-                                  className="rounded-lg border border-border/60 px-4 py-3 text-sm"
-                                >
-                                  <div className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
-                                    Step {index + 1}
-                                  </div>
-                                  <div className="mt-2 font-medium">
-                                    {action.method} {action.path}
-                                  </div>
-                                  <div className="mt-1 text-muted-foreground">
-                                    Action {action.id} on backend {action.backend_id}
-                                  </div>
-                                  <div className="mt-1 text-muted-foreground">
-                                    Success statuses {action.success_statuses.join(", ")}
-                                  </div>
-                                </div>
-                              ))}
+                          <div className="rounded-xl border border-border/60 bg-background/70 p-4">
+                            <div className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
+                              Result Preview
                             </div>
-                          </CapabilityField>
-
-                          <CapabilityField
-                            label="Prerequisites"
-                            description="Guards and setup logic that must be satisfied before the main action runs."
-                          >
-                            <div className="text-sm leading-6 text-muted-foreground">
-                              No explicit prerequisite or setup configuration is surfaced yet.
+                            <div className="mt-2 text-sm leading-6 text-muted-foreground">
+                              {responsePreview}
                             </div>
-                          </CapabilityField>
+                            <div className="mt-2 text-xs leading-6 text-muted-foreground">
+                              This editor currently models either the raw response body or one
+                              explicit extracted field.
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    </TabsContent>
-
-                    <TabsContent
-                      value="verification"
-                      className="min-h-0 flex-1 overflow-auto pt-6"
-                    >
-                      <div
-                        className="space-y-6"
-                        onMouseEnter={() => setInspectedTab("verification")}
-                      >
-                        <TabIntro text="Define the readback or post-action checks that determine whether this endpoint genuinely reached the intended final state." />
-
-                        <div className="space-y-0">
-                          <CapabilityField
-                            label="Verification Rule"
-                            description="Readback structure currently defined for this endpoint."
-                          >
-                            {selectedCapability.verification ? (
-                              <div className="space-y-2 text-sm">
-                                <div className="font-medium">
-                                  {selectedCapability.verification.action_id}
-                                </div>
-                                <div className="text-muted-foreground">
-                                  Attempts {selectedCapability.verification.attempts} with{" "}
-                                  {selectedCapability.verification.delay_ms}ms delay between
-                                  checks.
-                                </div>
-                                <div className="text-muted-foreground">
-                                  Success settle delay{" "}
-                                  {selectedCapability.verification.success_delay_ms}ms.
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="text-sm text-muted-foreground">
-                                This endpoint does not currently define verification.
-                              </div>
-                            )}
-                          </CapabilityField>
-                        </div>
-                      </div>
-                    </TabsContent>
-                  </Tabs>
-                ) : (
-                  <div className="flex h-full items-center justify-center">
-                    <div className="max-w-xl text-center">
-                      <div className="text-sm font-medium">No endpoint selected</div>
-                      <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                        Choose a capability from the sidebar to inspect its summary, inputs,
-                        output handling, execution steps, and verification.
-                      </p>
+                      </CapabilityField>
                     </div>
                   </div>
-                )}
+                </TabsContent>
+
+                <TabsContent value="inputs" className="min-h-0 flex-1 overflow-auto pt-6">
+                  <div className="space-y-6" onMouseEnter={() => setInspectedTab("inputs")}>
+                    <TabIntro text="Define the caller-facing input contract separately from the backend request. This tab stays focused on MCP inputs and leaves HTTP execution details to the command tab." />
+
+                    <div className="space-y-0">
+                      <CapabilityField
+                        label="Input Shape"
+                        description="Fields surfaced from the current inspected input schema."
+                      >
+                        {selectedCapability.input_schema_keys.length > 0 ? (
+                          <div className="space-y-2">
+                            {selectedCapability.input_schema_keys.map((field) => (
+                              <div
+                                key={field}
+                                className="rounded-lg border border-border/60 px-4 py-3 text-sm"
+                              >
+                                <div className="font-medium">{field}</div>
+                                <div className="mt-1 text-muted-foreground">
+                                  Field-level editing is not wired yet.
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-sm text-muted-foreground">
+                            This endpoint currently accepts no explicit input fields.
+                          </div>
+                        )}
+                      </CapabilityField>
+                    </div>
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="execution" className="min-h-0 flex-1 overflow-auto pt-6">
+                  <div className="space-y-6" onMouseEnter={() => setInspectedTab("execution")}>
+                    <TabIntro text="Use this tab for backend nuance beyond the main command: secondary actions, prerequisites, and the execution shape behind the endpoint." />
+
+                    <div className="space-y-0">
+                      <CapabilityField
+                        label="Execution Steps"
+                        description="Ordered backend actions currently defined for this endpoint."
+                      >
+                        <div className="space-y-2">
+                          {selectedCapability.actions.map((action, index) => (
+                            <ExecutionStepCard
+                              key={action.id}
+                              action={action}
+                              index={index}
+                              backendBaseUrl={
+                                backends.find((backend) => backend.id === action.backend_id)
+                                  ?.base_url ?? ""
+                              }
+                            />
+                          ))}
+                        </div>
+                      </CapabilityField>
+
+                      <CapabilityField
+                        label="Prerequisites"
+                        description="Guards and setup logic that must be satisfied before the main action runs."
+                      >
+                        <div className="text-sm leading-6 text-muted-foreground">
+                          No explicit prerequisite or setup configuration is surfaced yet.
+                        </div>
+                      </CapabilityField>
+                    </div>
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="testing" className="min-h-0 flex-1 overflow-auto pt-6">
+                  <div className="space-y-6" onMouseEnter={() => setInspectedTab("testing")}>
+                    <TabIntro text="Define readback and post-action checks here so the endpoint can be exercised and verified rather than assumed to have worked." />
+
+                    <div className="space-y-0">
+                      <CapabilityField
+                        label="Verification Rule"
+                        description="Readback structure currently defined for this endpoint."
+                      >
+                        {selectedCapability.verification ? (
+                          <div className="space-y-2 text-sm">
+                            <div className="font-medium">
+                              {selectedCapability.verification.action_id}
+                            </div>
+                            <div className="text-muted-foreground">
+                              Attempts {selectedCapability.verification.attempts} with{" "}
+                              {selectedCapability.verification.delay_ms}ms delay between checks.
+                            </div>
+                            <div className="text-muted-foreground">
+                              Success settle delay{" "}
+                              {selectedCapability.verification.success_delay_ms}ms.
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="text-sm text-muted-foreground">
+                            This endpoint does not currently define verification.
+                          </div>
+                        )}
+                      </CapabilityField>
+
+                      <CapabilityField
+                        label="Response Assertions"
+                        description="How the endpoint result is currently exposed for downstream testing and inspection."
+                      >
+                        {selectedCapability.output_fields.length > 0 ? (
+                          <div className="space-y-2">
+                            {selectedCapability.output_fields.map((output) => (
+                              <div
+                                key={`${output.name}:${output.json_pointer ?? output.source}`}
+                                className="rounded-lg border border-border/60 px-4 py-3 text-sm"
+                              >
+                                <div className="font-medium">{output.name}</div>
+                                <div className="mt-1 text-muted-foreground">
+                                  {output.source}
+                                  {output.json_pointer ? ` · ${output.json_pointer}` : ""}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-sm text-muted-foreground">
+                            This endpoint currently returns the raw main action response body.
+                          </div>
+                        )}
+                      </CapabilityField>
+                    </div>
+                  </div>
+                </TabsContent>
+              </Tabs>
+            ) : (
+              <div className="flex h-full items-center justify-center">
+                <div className="max-w-xl text-center">
+                  <div className="text-sm font-medium">No endpoint selected</div>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                    Choose a capability from the sidebar to define its HTTP command, inputs,
+                    execution detail, and testing behavior.
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
-      }
+      )}
     />
+  );
+}
+
+function ExecutionStepCard({
+  action,
+  index,
+  backendBaseUrl,
+}: {
+  action: InspectionAction;
+  index: number;
+  backendBaseUrl: string;
+}) {
+  return (
+    <div className="rounded-lg border border-border/60 px-4 py-3 text-sm">
+      <div className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
+        Step {index + 1}
+      </div>
+      <div className="mt-2 font-medium">
+        {action.method} {action.path}
+      </div>
+      <div className="mt-1 text-muted-foreground">
+        Action {action.id} on backend {action.backend_id}
+      </div>
+      {backendBaseUrl ? (
+        <div className="mt-1 font-mono text-xs text-muted-foreground">
+          {joinUrl(backendBaseUrl, action.path)}
+        </div>
+      ) : null}
+      <div className="mt-1 text-muted-foreground">
+        Success statuses {action.success_statuses.join(", ")}
+      </div>
+    </div>
   );
 }

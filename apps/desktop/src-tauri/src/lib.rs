@@ -4,8 +4,8 @@ mod project;
 
 use error::TervaError;
 use project::{
-    CoreBridge, EventBatch, NewProjectPreview, NewProjectRequest, ProjectDocument,
-    ProjectMetadataUpdate, ProjectSummary, RuntimeStatusPayload,
+    CoreBridge, EndpointCommandUpdate, EventBatch, NewProjectPreview, NewProjectRequest,
+    ProjectDocument, ProjectMetadataUpdate, ProjectSummary, RuntimeStatusPayload,
 };
 use tauri::State;
 
@@ -120,6 +120,14 @@ fn update_project_metadata(
     project::update_project_metadata(bridge.inner(), update)
 }
 
+#[tauri::command]
+fn update_endpoint_command(
+    bridge: State<'_, CoreBridge>,
+    update: EndpointCommandUpdate,
+) -> Result<ProjectDocument, TervaError> {
+    project::update_endpoint_command(bridge.inner(), update)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let bridge = CoreBridge::new();
@@ -139,6 +147,7 @@ pub fn run() {
             start_active_runtime,
             stop_active_runtime,
             summarize_recent_projects,
+            update_endpoint_command,
             update_project_metadata
         ])
         .run(tauri::generate_context!())

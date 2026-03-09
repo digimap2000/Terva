@@ -96,6 +96,18 @@ impl CoreBridge {
         let raw = core.pin_mut().update_project_metadata(&payload);
         decode_payload(&raw)
     }
+
+    pub fn update_endpoint_command(
+        &self,
+        update: &EndpointCommandUpdate,
+    ) -> Result<ProjectDocument, TervaError> {
+        let mut core = self.lock()?;
+        let payload = serde_json::to_string(update).map_err(|error| {
+            TervaError::Project(format!("Failed to encode endpoint update: {error}"))
+        })?;
+        let raw = core.pin_mut().update_endpoint_command(&payload);
+        decode_payload(&raw)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -242,6 +254,16 @@ pub struct ProjectMetadataUpdate {
     pub mcp_description: String,
     pub mcp_website_url: String,
     pub mcp_instructions: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EndpointCommandUpdate {
+    pub capability_id: String,
+    pub method: String,
+    pub path: String,
+    pub response_mode: String,
+    pub response_field_name: String,
+    pub response_json_pointer: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -528,4 +550,11 @@ pub fn update_project_metadata(
     update: ProjectMetadataUpdate,
 ) -> Result<ProjectDocument, TervaError> {
     bridge.update_project_metadata(&update)
+}
+
+pub fn update_endpoint_command(
+    bridge: &CoreBridge,
+    update: EndpointCommandUpdate,
+) -> Result<ProjectDocument, TervaError> {
+    bridge.update_endpoint_command(&update)
 }

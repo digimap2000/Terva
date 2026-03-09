@@ -9,7 +9,9 @@ import {
   startActiveRuntime,
   stopActiveRuntime,
   summarizeRecentProjects,
+  updateEndpointCommand,
   updateProjectMetadata,
+  type EndpointCommandUpdate,
   type NewProjectRequest,
   type ProjectMetadataUpdate,
   type ProjectDocument,
@@ -389,6 +391,30 @@ export function useActiveProject() {
     }
   }
 
+  async function saveEndpointCommand(update: EndpointCommandUpdate) {
+    if (!project) {
+      return null;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const nextProject = await updateEndpointCommand(update);
+      setProject(nextProject);
+      setRuntimeState("stopped");
+      setRuntimeError(null);
+      setServerUrl(null);
+      return nextProject;
+    } catch (value) {
+      const message = value instanceof Error ? value.message : String(value);
+      setError(message);
+      return null;
+    } finally {
+      setLoading(false);
+    }
+  }
+
   async function removeProject(path: string) {
     setLoading(true);
     setError(null);
@@ -439,5 +465,6 @@ export function useActiveProject() {
     startServer,
     stopServer,
     saveProjectMetadata,
+    saveEndpointCommand,
   };
 }

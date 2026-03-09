@@ -50,6 +50,15 @@ rust::String DesktopCore::update_project_metadata(const rust::Str metadata_json)
   }
 }
 
+rust::String DesktopCore::update_endpoint_command(const rust::Str update_json) {
+  try {
+    const auto update = terva::core::json::parse(std::string(update_json));
+    return wrap_result(engine_.update_endpoint_command(update));
+  } catch (const std::exception& exception) {
+    return envelope_error(std::string("invalid JSON endpoint update: ") + exception.what());
+  }
+}
+
 rust::String DesktopCore::summarize_document(const rust::Str path) const {
   return wrap_result(
       engine_.summarize_project_file(std::filesystem::path(std::string(path))));
