@@ -14,10 +14,17 @@ export interface InspectionAction {
   id: string;
   description: string;
   backend_id: string;
-  method: string;
-  path: string;
-  query: Record<string, string>;
-  success_statuses: number[];
+  operation_type?: string;
+  method?: string;
+  path?: string;
+  query?: Record<string, string>;
+  success_statuses?: number[];
+  statement?: string;
+  result_format?: string;
+  format?: string;
+  glob?: string;
+  recursive?: boolean;
+  command?: string;
 }
 
 export interface InspectionOutputField {
@@ -39,13 +46,19 @@ export interface InspectionVerification {
 }
 
 export interface InspectionBackend {
-  id: string;
+  id?: string;
+  name?: string;
   backend_type: string;
-  base_url: string;
+  connection_kind?: string;
+  base_url?: string;
+  description?: string;
+  image_path?: string;
+  category_icon?: string;
 }
 
 export interface InspectionCapability {
   id: string;
+  name?: string;
   tool_name: string;
   description: string;
   input_schema: unknown;
@@ -93,6 +106,8 @@ export interface ProjectInspection {
   product_http: ProductHttpSettings;
   product_uart: ProductUartSettings;
   mcp_server: McpServerMetadata;
+  services?: unknown[];
+  backend?: InspectionBackend;
   source_path: string;
   backends: InspectionBackend[];
   capabilities: InspectionCapability[];
@@ -185,6 +200,7 @@ export interface NewProjectRequest {
 
 export interface ToolSummary {
   capability_id: string;
+  name?: string;
   tool_name: string;
   description: string;
   input_schema: unknown;

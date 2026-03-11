@@ -371,36 +371,38 @@ fn starter_project_contents(preview: &NewProjectPreview) -> String {
         r#"name: "{project_name}"
 description: "New Terva project."
 
-mcp_transports: MCP_TRANSPORT_STREAMABLE_HTTP
-product_connector: PRODUCT_CONNECTOR_HTTP
-product_category_icon: "device"
-
-product_http {{
-  version: "1.1"
-  tls_enabled: false
-}}
-
-mcp_server {{
-  name: "{mcp_server_name}"
-  version: "1.0.1"
-  title: "{project_name}"
-  description: "New Terva MCP server."
-  instructions: "Use the exposed tools and resources from this Terva project."
-}}
-
 logging {{
   sink: "stderr"
 }}
 
-backends {{
+services {{
   id: "primary"
-  type: BACKEND_TYPE_HTTP_JSON
-  base_url: "http://127.0.0.1:8080"
+  description: "Primary MCP service."
+  mcp {{
+    server {{
+      name: "{mcp_server_name}"
+      version: "1.0.1"
+      title: "{project_name}"
+      description: "New Terva MCP service."
+      instructions: "Use the exposed tools and resources from this Terva project."
+    }}
+    transports: MCP_TRANSPORT_STREAMABLE_HTTP
+  }}
+}}
+
+device {{
+  name: "{project_name}"
+  category_icon: "device"
+  http {{
+    base_url: "http://127.0.0.1:8080"
+    version: "1.1"
+    tls_enabled: false
+  }}
 }}
 
 capabilities {{
   id: "ping_service"
-  tool_name: "ping_service"
+  name: "ping_service"
   description: "Starter placeholder capability. Replace this with the first real operation for the project."
   input_schema {{
     type: "object"
@@ -408,12 +410,13 @@ capabilities {{
   }}
   actions {{
     id: "ping_service"
-    backend: "primary"
-    method: HTTP_METHOD_GET
-    path: "/"
-    success_statuses: 200
+    http {{
+      method: HTTP_METHOD_GET
+      path: "/"
+      success_statuses: 200
+    }}
   }}
-  action: "ping_service"
+  main_action: "ping_service"
   output_fields {{
     name: "status"
     source: OUTPUT_SOURCE_LITERAL

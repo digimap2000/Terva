@@ -75,106 +75,106 @@ const fieldHelp: Record<ProjectFieldKey, FieldHelp> = {
       "Known real-device control and playback session reads for the streamer at 192.168.1.111:15081.",
   },
   mcp_transports: {
-    label: "MCP Transports",
-    summary: "The transport modes this server intends to offer under the MCP surface.",
+    label: "Service Transports",
+    summary: "The transport modes the MCP service intends to offer.",
     explanation:
-      "MCP is the front end of a Terva bridge. Use this to declare which transport modes clients should be able to use to reach the server, such as Streamable HTTP or stdio.",
+      "Services are the external publication layer of a Terva project. Use this to declare how clients should be able to reach the MCP service, such as Streamable HTTP or stdio.",
     example: '["streamable_http"]',
   },
   product_connector: {
-    label: "Product Connector",
-    summary: "The technology families Terva will use to reach the user's downstream product.",
+    label: "Backend Connection",
+    summary: "The transport Terva will use to reach the backend system.",
     explanation:
-      "Use this to declare how the bridged product is reached. This is separate from MCP itself and captures the global connection shape of the product side of the bridge.",
+      "Use this to declare how the backend is reached. This is separate from MCP itself and captures the connection shape of the system implementing the capability surface.",
     example: "http",
   },
   product_name: {
-    label: "Product Name",
-    summary: "Friendly identity for the downstream product this bridge connects to.",
+    label: "Backend Name",
+    summary: "Friendly identity for the backend this project controls.",
     explanation:
-      "Use this when you want the project to carry a clear user-facing name for the bridged product itself. This is separate from the Terva project name and separate from the MCP server name.",
+      "Use this when you want the project to carry a clear user-facing name for the backend itself. This is separate from the Terva project name and separate from the MCP service name.",
     example: "Living Room Streamer",
   },
   product_image_path: {
-    label: "Product Image",
-    summary: "Optional image path used as the avatar for this product.",
+    label: "Backend Image",
+    summary: "Optional image path used as the avatar for this backend.",
     explanation:
       "Point this at a local image file when you want the project to show a recognisable product image. If empty, the assigned category icon will be used instead.",
     example: "/Users/andys/Pictures/streamer.png",
   },
   product_category_icon: {
     label: "Category Icon",
-    summary: "Fallback category icon used when no product image is provided.",
+    summary: "Fallback category icon used when no backend image is provided.",
     explanation:
       "Choose a simple category icon that can stand in for the product in cards, menus, and other overview surfaces when no image is available.",
     example: "speaker",
   },
   product_http_version: {
     label: "HTTP Version",
-    summary: "The HTTP dialect expected by the downstream product API.",
+    summary: "The HTTP dialect expected by the backend API.",
     explanation:
       "Use this to record the protocol version the bridged product expects globally, such as HTTP/1.1 or HTTP/2.",
     example: "1.1",
   },
   product_http_tls_enabled: {
     label: "TLS Support",
-    summary: "Whether the product API is expected to use HTTPS/TLS.",
+    summary: "Whether the backend API is expected to use HTTPS/TLS.",
     explanation:
       "Enable this when the product API is intended to be reached over HTTPS rather than plain HTTP.",
     example: "true",
   },
   product_http_mandatory_headers_text: {
     label: "Mandatory Headers",
-    summary: "Global headers every request to the product API should be prepared to send.",
+    summary: "Global headers every request to the backend API should be prepared to send.",
     explanation:
       "Enter one header per line in the form `Header-Name: value`. Use this for product-wide headers rather than capability-specific request details.",
     example: "X-Api-Version: 1\nAccept: application/json",
   },
   product_uart_baud_rate: {
     label: "Baud Rate",
-    summary: "The serial baud rate expected by the downstream UART product.",
+    summary: "The serial baud rate expected by the backend UART link.",
     explanation:
       "Set the fixed baud rate the product expects. Leave it empty until the serial requirements are known.",
     example: "115200",
   },
   product_uart_port: {
     label: "Port Hint",
-    summary: "A known port, device path, or other connection hint for the UART product.",
+    summary: "A known port, device path, or other connection hint for the backend UART link.",
     explanation:
       "Use this to capture the best known connection hint, such as `/dev/tty.usbserial-01` or `COM3`.",
     example: "/dev/tty.usbserial-01",
   },
   product_uart_framing: {
     label: "Framing",
-    summary: "The expected UART framing or line configuration.",
+    summary: "The expected UART framing or line configuration for the backend link.",
     explanation:
       "Capture the serial framing in a compact form such as `8N1` if the product depends on it.",
     example: "8N1",
   },
   mcp_name: {
-    label: "Server Name",
-    summary: "Mandatory MCP server identifier surfaced in serverInfo.name.",
+    label: "Service Name",
+    summary: "Mandatory MCP service identifier surfaced in serverInfo.name.",
     explanation:
       "This should be stable and programmatic. Treat it as the canonical MCP-facing server name rather than a marketing title.",
     example: "streamer-power-control",
   },
   mcp_version: {
-    label: "Server Version",
-    summary: "Mandatory MCP server version surfaced in serverInfo.version.",
+    label: "Service Version",
+    summary: "Mandatory MCP service version surfaced in serverInfo.version.",
     explanation:
       "Version the server surface deliberately. This is what clients will see during initialize and should track the server behavior they are connecting to.",
     example: "1.0.1",
   },
   mcp_title: {
-    label: "Server Title",
+    label: "Service Title",
     summary: "Optional display title for clients and user-facing tools.",
     explanation:
       "Use this when you want a more readable name than the programmatic server name. Clients can display it in preference to the raw identifier.",
     example: "Streamer Power Control",
   },
   mcp_description: {
-    label: "Server Description",
-    summary: "Optional MCP-facing description of the server.",
+    label: "Service Description",
+    summary: "Optional MCP-facing description of the service.",
     explanation:
       "Summarize what this server offers to clients. Keep it concise and capability-oriented rather than implementation-oriented.",
     example:
@@ -182,13 +182,13 @@ const fieldHelp: Record<ProjectFieldKey, FieldHelp> = {
   },
   mcp_website_url: {
     label: "Website URL",
-    summary: "Optional HTTP or HTTPS URL associated with the server.",
+    summary: "Optional HTTP or HTTPS URL associated with the service.",
     explanation:
       "Use this for documentation or product home pages. Leave it empty if the project does not have a stable public reference.",
     example: "https://terva.dev/streamer-power-control",
   },
   mcp_instructions: {
-    label: "Server Instructions",
+    label: "Service Instructions",
     summary: "Optional initialize-time guidance for MCP clients.",
     explanation:
       "This is where you explain how a client should use the server. Keep it specific to the tools and behaviors exposed by this project.",
@@ -323,12 +323,12 @@ const productConnectorOptions = [
   {
     id: "http",
     label: "HTTP",
-    description: "Connect to a downstream product API over HTTP or HTTPS.",
+    description: "Connect to the backend API over HTTP or HTTPS.",
   },
   {
     id: "uart",
     label: "UART",
-    description: "Connect to a downstream product over a serial UART link.",
+    description: "Connect to the backend over a serial UART link.",
   },
 ] as const;
 
