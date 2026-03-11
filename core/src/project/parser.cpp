@@ -14,8 +14,8 @@
 #include <google/protobuf/io/zero_copy_stream_impl.h>
 #include <google/protobuf/text_format.h>
 
-#include <fstream>
 #include <cstdint>
+#include <fstream>
 #include <sstream>
 #include <string>
 
@@ -55,6 +55,7 @@ class textproto_error_collector final
     summary_.append(": ");
     summary_.append(message.data(), message.size());
   }
+
   std::string summary_;
 };
 
@@ -89,6 +90,11 @@ convert_named_string_list(
     }
   }
   return result;
+}
+
+[[nodiscard]] std::vector<std::string> convert_string_list(
+    const google::protobuf::RepeatedPtrField<std::string>& values) {
+  return {values.begin(), values.end()};
 }
 
 [[nodiscard]] std::expected<json, std::string> convert_object_value(
@@ -146,22 +152,6 @@ convert_named_string_list(
   return std::unexpected(std::string(path) + " contains an unsupported value");
 }
 
-[[nodiscard]] std::expected<backend_type, std::string> convert_backend_type(
-    const proto::BackendType value,
-    std::string_view path) {
-  switch (value) {
-    case proto::BACKEND_TYPE_HTTP_JSON:
-      return backend_type::http_json;
-    case proto::BACKEND_TYPE_LOCALHOST_HTTP_JSON:
-      return backend_type::localhost_http_json;
-    case proto::BACKEND_TYPE_UNSPECIFIED:
-      break;
-    default:
-      break;
-  }
-  return std::unexpected(std::string(path) + " is not supported");
-}
-
 [[nodiscard]] std::expected<mcp_transport, std::string> convert_mcp_transport(
     const proto::McpTransport value,
     std::string_view path) {
@@ -171,22 +161,6 @@ convert_named_string_list(
     case proto::MCP_TRANSPORT_STDIO:
       return mcp_transport::stdio;
     case proto::MCP_TRANSPORT_UNSPECIFIED:
-      break;
-    default:
-      break;
-  }
-  return std::unexpected(std::string(path) + " is not supported");
-}
-
-[[nodiscard]] std::expected<product_connector, std::string> convert_product_connector(
-    const proto::ProductConnector value,
-    std::string_view path) {
-  switch (value) {
-    case proto::PRODUCT_CONNECTOR_HTTP:
-      return product_connector::http;
-    case proto::PRODUCT_CONNECTOR_UART:
-      return product_connector::uart;
-    case proto::PRODUCT_CONNECTOR_UNSPECIFIED:
       break;
     default:
       break;
@@ -255,7 +229,8 @@ convert_named_string_list(
 
   switch (source.matcher_case()) {
     case proto::ValueExpectation::kEquals: {
-      auto equals = convert_data_value(source.equals(), std::string(path) + ".equals");
+      auto equals =
+          convert_data_value(source.equals(), std::string(path) + ".equals");
       if (!equals) {
         return std::unexpected(equals.error());
       }
@@ -322,6 +297,303 @@ convert_named_string_list(
   return schema;
 }
 
+[[nodiscard]] mcp_server_definition convert_mcp_server(
+    const proto::McpServerDefinition& source,
+    std::string_view default_name,
+    const std::optional<std::string>& project_description) {
+  mcp_server_definition server;
+  server.name = source.name().empty() ? std::string(default_name) : source.name();
+  server.version = source.version().empty() ? std::string(terva::core::version())
+                                            : source.version();
+  if (!source.title().empty()) {
+    server.title = source.title();
+  }
+  if (!source.description().empty()) {
+    server.description = source.description();
+  } else if (project_description.has_value()) {
+    server.description = project_description;
+  }
+  if (!source.website_url().empty()) {
+    server.website_url = source.website_url();
+  }
+  if (!source.instructions().empty()) {
+    server.instructions = source.instructions();
+  }
+  return server;
+}
+
+[[nodiscard]] std::expected<service_definition, std::string> convert_service(
+    const proto::ServiceDefinition& source,
+    const project_definition& project,
+    const int index) {
+  service_definition service;
+  service.id = source.id();
+  service.description = source.description();
+
+  switch (source.config_case()) {
+    case proto::ServiceDefinition::kMcp: {
+      service.type = service_type::mcp;
+      mcp_service_definition mcp;
+      const auto default_name =
+          !service.id.empty() ? std::string_view(service.id) : std::string_view(project.name);
+      mcp.server = convert_mcp_server(source.mcp().server(), default_name, project.description);
+      for (int transport_index = 0; transport_index < source.mcp().transports_size();
+           ++transport_index) {
+        auto transport = convert_mcp_transport(
+            source.mcp().transports(transport_index),
+            "project.services[" + std::to_string(index) + "].mcp.transports[" +
+                std::to_string(transport_index) + "]");
+        if (!transport) {
+          return std::unexpected(transport.error());
+        }
+        mcp.transports.push_back(*transport);
+      }
+      service.mcp = std::move(mcp);
+      return service;
+    }
+    case proto::ServiceDefinition::CONFIG_NOT_SET:
+      break;
+  }
+
+  return std::unexpected("project.services[" + std::to_string(index) +
+                         "] must define a service config");
+}
+
+[[nodiscard]] std::expected<backend_definition, std::string> convert_backend(
+    const proto::ProjectDefinition& source) {
+  backend_definition backend;
+
+  switch (source.backend_case()) {
+    case proto::ProjectDefinition::kDevice: {
+      backend.kind = backend_kind::device;
+      backend.name = source.device().name();
+      if (!source.device().image_path().empty()) {
+        backend.image_path = source.device().image_path();
+      }
+      if (!source.device().category_icon().empty()) {
+        backend.category_icon = source.device().category_icon();
+      }
+      switch (source.device().connection_case()) {
+        case proto::DeviceBackendDefinition::kHttp: {
+          backend.connection_kind = backend_connection_kind::http;
+          device_http_connection connection;
+          connection.base_url = source.device().http().base_url();
+          auto headers = convert_named_string_list(
+              source.device().http().headers(), "project.backend.device.http.headers");
+          if (!headers) {
+            return std::unexpected(headers.error());
+          }
+          connection.headers = std::move(*headers);
+          if (!source.device().http().version().empty()) {
+            connection.version = source.device().http().version();
+          }
+          connection.tls_enabled = source.device().http().tls_enabled();
+          backend.device_http = std::move(connection);
+          return backend;
+        }
+        case proto::DeviceBackendDefinition::kUart: {
+          backend.connection_kind = backend_connection_kind::uart;
+          device_uart_connection connection;
+          if (source.device().uart().has_baud_rate()) {
+            connection.baud_rate = source.device().uart().baud_rate();
+          }
+          if (!source.device().uart().port().empty()) {
+            connection.port = source.device().uart().port();
+          }
+          if (!source.device().uart().framing().empty()) {
+            connection.framing = source.device().uart().framing();
+          }
+          backend.device_uart = std::move(connection);
+          return backend;
+        }
+        case proto::DeviceBackendDefinition::kEthernet: {
+          backend.connection_kind = backend_connection_kind::ethernet;
+          device_ethernet_connection connection;
+          connection.host = source.device().ethernet().host();
+          if (source.device().ethernet().has_port()) {
+            connection.port = source.device().ethernet().port();
+          }
+          connection.protocol = source.device().ethernet().protocol();
+          backend.device_ethernet = std::move(connection);
+          return backend;
+        }
+        case proto::DeviceBackendDefinition::CONNECTION_NOT_SET:
+          break;
+      }
+      return std::unexpected("project.device must define a connection");
+    }
+    case proto::ProjectDefinition::kDatabase: {
+      backend.kind = backend_kind::database;
+      backend.name = source.database().name();
+      if (!source.database().description().empty()) {
+        backend.description = source.database().description();
+      }
+      switch (source.database().connection_case()) {
+        case proto::DatabaseBackendDefinition::kSql: {
+          backend.connection_kind = backend_connection_kind::sql;
+          database_sql_connection connection;
+          connection.dsn = source.database().sql().dsn();
+          connection.dialect = source.database().sql().dialect();
+          auto parameters = convert_named_string_list(
+              source.database().sql().parameters(),
+              "project.backend.database.sql.parameters");
+          if (!parameters) {
+            return std::unexpected(parameters.error());
+          }
+          connection.parameters = std::move(*parameters);
+          backend.database_sql = std::move(connection);
+          return backend;
+        }
+        case proto::DatabaseBackendDefinition::CONNECTION_NOT_SET:
+          break;
+      }
+      return std::unexpected("project.database must define a connection");
+    }
+    case proto::ProjectDefinition::kFile: {
+      backend.kind = backend_kind::file;
+      backend.name = source.file().name();
+      if (!source.file().description().empty()) {
+        backend.description = source.file().description();
+      }
+      switch (source.file().connection_case()) {
+        case proto::FileBackendDefinition::kTree: {
+          backend.connection_kind = backend_connection_kind::tree;
+          file_tree_connection connection;
+          connection.root_path = source.file().tree().root_path();
+          connection.include_globs = convert_string_list(source.file().tree().include_globs());
+          connection.exclude_globs = convert_string_list(source.file().tree().exclude_globs());
+          connection.read_only = source.file().tree().read_only();
+          backend.file_tree = std::move(connection);
+          return backend;
+        }
+        case proto::FileBackendDefinition::CONNECTION_NOT_SET:
+          break;
+      }
+      return std::unexpected("project.file must define a connection");
+    }
+    case proto::ProjectDefinition::BACKEND_NOT_SET:
+      break;
+  }
+
+  return std::unexpected("project must define a backend");
+}
+
+[[nodiscard]] std::expected<action_definition, std::string> convert_action(
+    const proto::ActionDefinition& source,
+    const int capability_index,
+    const int action_index) {
+  action_definition action;
+  action.id = source.id();
+  action.description = source.description();
+
+  switch (source.operation_case()) {
+    case proto::ActionDefinition::kHttp: {
+      action.type = action_type::http;
+      http_request_operation operation;
+      auto method = convert_http_method(
+          source.http().method(),
+          "project.capabilities[" + std::to_string(capability_index) + "].actions[" +
+              std::to_string(action_index) + "].http.method");
+      if (!method) {
+        return std::unexpected(method.error());
+      }
+      operation.method = *method;
+      operation.path_template = source.http().path();
+
+      auto query = convert_named_string_list(
+          source.http().query(),
+          "project.capabilities[" + std::to_string(capability_index) + "].actions[" +
+              std::to_string(action_index) + "].http.query");
+      if (!query) {
+        return std::unexpected(query.error());
+      }
+      operation.query_parameters = std::move(*query);
+
+      auto headers = convert_named_string_list(
+          source.http().headers(),
+          "project.capabilities[" + std::to_string(capability_index) + "].actions[" +
+              std::to_string(action_index) + "].http.headers");
+      if (!headers) {
+        return std::unexpected(headers.error());
+      }
+      operation.headers = std::move(*headers);
+
+      if (source.http().has_body()) {
+        auto body = convert_data_value(
+            source.http().body(),
+            "project.capabilities[" + std::to_string(capability_index) + "].actions[" +
+                std::to_string(action_index) + "].http.body");
+        if (!body) {
+          return std::unexpected(body.error());
+        }
+        operation.body_template = std::move(*body);
+      }
+      if (!source.http().success_statuses().empty()) {
+        operation.success_statuses.assign(source.http().success_statuses().begin(),
+                                          source.http().success_statuses().end());
+      }
+      action.http = std::move(operation);
+      return action;
+    }
+    case proto::ActionDefinition::kSql: {
+      action.type = action_type::sql;
+      sql_query_operation operation;
+      operation.statement = source.sql().statement();
+      auto parameters = convert_named_string_list(
+          source.sql().parameters(),
+          "project.capabilities[" + std::to_string(capability_index) + "].actions[" +
+              std::to_string(action_index) + "].sql.parameters");
+      if (!parameters) {
+        return std::unexpected(parameters.error());
+      }
+      operation.parameters = std::move(*parameters);
+      operation.result_format = source.sql().result_format();
+      action.sql = std::move(operation);
+      return action;
+    }
+    case proto::ActionDefinition::kFileRead: {
+      action.type = action_type::file_read;
+      file_read_operation operation;
+      operation.path = source.file_read().path();
+      operation.format = source.file_read().format();
+      action.file_read = std::move(operation);
+      return action;
+    }
+    case proto::ActionDefinition::kFileList: {
+      action.type = action_type::file_list;
+      file_list_operation operation;
+      operation.path = source.file_list().path();
+      operation.glob = source.file_list().glob();
+      operation.recursive = source.file_list().recursive();
+      action.file_list = std::move(operation);
+      return action;
+    }
+    case proto::ActionDefinition::kUart: {
+      action.type = action_type::uart;
+      uart_exchange_operation operation;
+      operation.command = source.uart().command();
+      if (source.uart().has_payload()) {
+        auto payload = convert_data_value(
+            source.uart().payload(),
+            "project.capabilities[" + std::to_string(capability_index) + "].actions[" +
+                std::to_string(action_index) + "].uart.payload");
+        if (!payload) {
+          return std::unexpected(payload.error());
+        }
+        operation.payload_template = std::move(*payload);
+      }
+      action.uart = std::move(operation);
+      return action;
+    }
+    case proto::ActionDefinition::OPERATION_NOT_SET:
+      break;
+  }
+
+  return std::unexpected("project.capabilities[" + std::to_string(capability_index) +
+                         "].actions[" + std::to_string(action_index) +
+                         "] must define an operation");
+}
+
 [[nodiscard]] std::expected<project_definition, std::string> convert_project(
     const proto::ProjectDefinition& source,
     const std::filesystem::path& path) {
@@ -330,87 +602,6 @@ convert_named_string_list(
   project.name = source.name();
   if (!source.description().empty()) {
     project.description = source.description();
-  }
-  project.mcp_server.name =
-      source.has_mcp_server() && !source.mcp_server().name().empty()
-          ? source.mcp_server().name()
-          : project.name;
-  project.mcp_server.version =
-      source.has_mcp_server() && !source.mcp_server().version().empty()
-          ? source.mcp_server().version()
-          : std::string(terva::core::version());
-  if (source.has_mcp_server()) {
-    if (!source.mcp_server().title().empty()) {
-      project.mcp_server.title = source.mcp_server().title();
-    }
-    if (!source.mcp_server().description().empty()) {
-      project.mcp_server.description = source.mcp_server().description();
-    } else if (project.description.has_value()) {
-      project.mcp_server.description = project.description;
-    }
-    if (!source.mcp_server().website_url().empty()) {
-      project.mcp_server.website_url = source.mcp_server().website_url();
-    }
-    if (!source.mcp_server().instructions().empty()) {
-      project.mcp_server.instructions = source.mcp_server().instructions();
-    }
-  } else if (project.description.has_value()) {
-    project.mcp_server.description = project.description;
-  }
-
-  for (int index = 0; index < source.mcp_transports_size(); ++index) {
-    auto transport = convert_mcp_transport(
-        source.mcp_transports(index),
-        "project.mcp_transports[" + std::to_string(index) + "]");
-    if (!transport) {
-      return std::unexpected(transport.error());
-    }
-    project.mcp_transports.push_back(*transport);
-  }
-
-  if (source.product_connector() != proto::PRODUCT_CONNECTOR_UNSPECIFIED) {
-    auto connector = convert_product_connector(
-        source.product_connector(),
-        "project.product_connector");
-    if (!connector) {
-      return std::unexpected(connector.error());
-    }
-    project.product_connector = *connector;
-  }
-  if (!source.product_name().empty()) {
-    project.product_name = source.product_name();
-  }
-  if (!source.product_image_path().empty()) {
-    project.product_image_path = source.product_image_path();
-  }
-  if (!source.product_category_icon().empty()) {
-    project.product_category_icon = source.product_category_icon();
-  }
-
-  if (source.has_product_http()) {
-    if (!source.product_http().version().empty()) {
-      project.product_http.version = source.product_http().version();
-    }
-    project.product_http.tls_enabled = source.product_http().tls_enabled();
-    auto headers = convert_named_string_list(
-        source.product_http().mandatory_headers(),
-        "project.product_http.mandatory_headers");
-    if (!headers) {
-      return std::unexpected(headers.error());
-    }
-    project.product_http.mandatory_headers = std::move(*headers);
-  }
-
-  if (source.has_product_uart()) {
-    if (source.product_uart().has_baud_rate()) {
-      project.product_uart.baud_rate = source.product_uart().baud_rate();
-    }
-    if (!source.product_uart().port().empty()) {
-      project.product_uart.port = source.product_uart().port();
-    }
-    if (!source.product_uart().framing().empty()) {
-      project.product_uart.framing = source.product_uart().framing();
-    }
   }
   if (source.has_logging()) {
     if (!source.logging().sink().empty()) {
@@ -421,35 +612,26 @@ convert_named_string_list(
     }
   }
 
-  for (int backend_index = 0; backend_index < source.backends_size();
-       ++backend_index) {
-    const auto& backend_proto = source.backends(backend_index);
-    backend_definition backend;
-    backend.id = backend_proto.id();
-    auto type = convert_backend_type(
-        backend_proto.type(),
-        "project.backends[" + std::to_string(backend_index) + "].type");
-    if (!type) {
-      return std::unexpected(type.error());
+  for (int service_index = 0; service_index < source.services_size(); ++service_index) {
+    auto service = convert_service(source.services(service_index), project, service_index);
+    if (!service) {
+      return std::unexpected(service.error());
     }
-    backend.type = *type;
-    backend.base_url = backend_proto.base_url();
-    auto headers = convert_named_string_list(
-        backend_proto.headers(),
-        "project.backends[" + std::to_string(backend_index) + "].headers");
-    if (!headers) {
-      return std::unexpected(headers.error());
-    }
-    backend.headers = std::move(*headers);
-    project.backends.push_back(std::move(backend));
+    project.services.push_back(std::move(*service));
   }
+
+  auto backend = convert_backend(source);
+  if (!backend) {
+    return std::unexpected(backend.error());
+  }
+  project.backend = std::move(*backend);
 
   for (int capability_index = 0; capability_index < source.capabilities_size();
        ++capability_index) {
     const auto& capability_proto = source.capabilities(capability_index);
     capability_definition capability;
     capability.id = capability_proto.id();
-    capability.tool_name = capability_proto.tool_name();
+    capability.name = capability_proto.name();
     capability.description = capability_proto.description();
 
     if (!capability_proto.has_input_schema()) {
@@ -467,56 +649,12 @@ convert_named_string_list(
 
     for (int action_index = 0; action_index < capability_proto.actions_size();
          ++action_index) {
-      const auto& action_proto = capability_proto.actions(action_index);
-      http_action_definition action;
-      action.id = action_proto.id();
-      action.description = action_proto.description();
-      action.backend_id = action_proto.backend();
-      auto method = convert_http_method(
-          action_proto.method(),
-          "project.capabilities[" + std::to_string(capability_index) +
-              "].actions[" + std::to_string(action_index) + "].method");
-      if (!method) {
-        return std::unexpected(method.error());
+      auto action = convert_action(capability_proto.actions(action_index), capability_index,
+                                   action_index);
+      if (!action) {
+        return std::unexpected(action.error());
       }
-      action.method = *method;
-      action.path_template = action_proto.path();
-
-      auto query = convert_named_string_list(
-          action_proto.query(),
-          "project.capabilities[" + std::to_string(capability_index) +
-              "].actions[" + std::to_string(action_index) + "].query");
-      if (!query) {
-        return std::unexpected(query.error());
-      }
-      action.query_parameters = std::move(*query);
-
-      auto headers = convert_named_string_list(
-          action_proto.headers(),
-          "project.capabilities[" + std::to_string(capability_index) +
-              "].actions[" + std::to_string(action_index) + "].headers");
-      if (!headers) {
-        return std::unexpected(headers.error());
-      }
-      action.headers = std::move(*headers);
-
-      if (action_proto.has_body()) {
-        auto body = convert_data_value(
-            action_proto.body(),
-            "project.capabilities[" + std::to_string(capability_index) +
-                "].actions[" + std::to_string(action_index) + "].body");
-        if (!body) {
-          return std::unexpected(body.error());
-        }
-        action.body_template = std::move(*body);
-      }
-
-      if (!action_proto.success_statuses().empty()) {
-        action.success_statuses.assign(action_proto.success_statuses().begin(),
-                                       action_proto.success_statuses().end());
-      }
-
-      capability.actions.push_back(std::move(action));
+      capability.actions.push_back(std::move(*action));
     }
 
     for (int precondition_index = 0;
@@ -539,8 +677,7 @@ convert_named_string_list(
       capability.preconditions.push_back(std::move(precondition));
     }
 
-    for (int setup_index = 0; setup_index < capability_proto.setup_size();
-         ++setup_index) {
+    for (int setup_index = 0; setup_index < capability_proto.setup_size(); ++setup_index) {
       const auto& setup_proto = capability_proto.setup(setup_index);
       setup_step_definition setup;
       setup.id = setup_proto.id();
@@ -550,7 +687,7 @@ convert_named_string_list(
       capability.setup_steps.push_back(std::move(setup));
     }
 
-    capability.main_action_id = capability_proto.action();
+    capability.main_action_id = capability_proto.main_action();
 
     if (capability_proto.has_verification()) {
       verification_definition verification;
@@ -612,8 +749,8 @@ convert_named_string_list(
         auto mapped_value = convert_data_value(
             normalize_proto.mapped_value(),
             "project.capabilities[" + std::to_string(capability_index) +
-                "].output_fields[" + std::to_string(output_index) +
-                "].normalize[" + normalize_proto.raw_value() + "]");
+                "].output_fields[" + std::to_string(output_index) + "].normalize[" +
+                normalize_proto.raw_value() + "]");
         if (!mapped_value) {
           return std::unexpected(mapped_value.error());
         }
@@ -621,11 +758,9 @@ convert_named_string_list(
             normalize_proto.raw_value(), std::move(*mapped_value));
         if (!insert_result.second) {
           return std::unexpected("project.capabilities[" +
-                                 std::to_string(capability_index) +
-                                 "].output_fields[" +
-                                 std::to_string(output_index) +
-                                 "].normalize[" + normalize_proto.raw_value() +
-                                 "] is duplicated");
+                                 std::to_string(capability_index) + "].output_fields[" +
+                                 std::to_string(output_index) + "].normalize[" +
+                                 normalize_proto.raw_value() + "] is duplicated");
         }
       }
       if (output_proto.has_default_value()) {
@@ -656,6 +791,13 @@ void assign_named_strings(
     auto* item = target->Add();
     item->set_name(name);
     item->set_value(value);
+  }
+}
+
+void assign_string_list(google::protobuf::RepeatedPtrField<std::string>* target,
+                        const std::vector<std::string>& values) {
+  for (const auto& value : values) {
+    target->Add(std::string(value));
   }
 }
 
@@ -701,16 +843,6 @@ void assign_data_value(proto::DataValue* target, const json& value) {
   }
 }
 
-proto::BackendType to_proto_backend_type(const backend_type value) {
-  switch (value) {
-    case backend_type::http_json:
-      return proto::BACKEND_TYPE_HTTP_JSON;
-    case backend_type::localhost_http_json:
-      return proto::BACKEND_TYPE_LOCALHOST_HTTP_JSON;
-  }
-  return proto::BACKEND_TYPE_UNSPECIFIED;
-}
-
 proto::HttpMethod to_proto_http_method(const http_method value) {
   switch (value) {
     case http_method::get:
@@ -749,6 +881,16 @@ proto::OutputTransform to_proto_output_transform(const output_transform value) {
   return proto::OUTPUT_TRANSFORM_UNSPECIFIED;
 }
 
+proto::McpTransport to_proto_mcp_transport(const mcp_transport value) {
+  switch (value) {
+    case mcp_transport::streamable_http:
+      return proto::MCP_TRANSPORT_STREAMABLE_HTTP;
+    case mcp_transport::stdio:
+      return proto::MCP_TRANSPORT_STDIO;
+  }
+  return proto::MCP_TRANSPORT_UNSPECIFIED;
+}
+
 void assign_expectation(proto::ValueExpectation* target,
                         const value_expectation& source) {
   target->set_json_pointer(source.json_pointer);
@@ -757,6 +899,211 @@ void assign_expectation(proto::ValueExpectation* target,
   }
   if (source.equals_input.has_value()) {
     target->set_equals_input(*source.equals_input);
+  }
+}
+
+void assign_input_schema(proto::InputSchema* target, const json& source) {
+  if (const auto type = source.find("type");
+      type != source.end() && type->is_string()) {
+    target->set_type(type->get<std::string>());
+  }
+  if (const auto additional = source.find("additionalProperties");
+      additional != source.end() && additional->is_boolean()) {
+    target->set_additional_properties(additional->get<bool>());
+  }
+  if (const auto properties = source.find("properties");
+      properties != source.end() && properties->is_object()) {
+    for (const auto& [name, schema] : properties->items()) {
+      auto* property = target->add_properties();
+      property->set_name(name);
+      if (!schema.is_object()) {
+        continue;
+      }
+      if (const auto type = schema.find("type");
+          type != schema.end() && type->is_string()) {
+        property->set_type(type->get<std::string>());
+      }
+      if (const auto minimum = schema.find("minimum"); minimum != schema.end()) {
+        assign_data_value(property->mutable_minimum(), *minimum);
+      }
+      if (const auto maximum = schema.find("maximum"); maximum != schema.end()) {
+        assign_data_value(property->mutable_maximum(), *maximum);
+      }
+    }
+  }
+  if (const auto required = source.find("required");
+      required != source.end() && required->is_array()) {
+    for (const auto& item : *required) {
+      if (item.is_string()) {
+        target->add_required(item.get<std::string>());
+      }
+    }
+  }
+}
+
+void assign_service(proto::ServiceDefinition* target, const service_definition& source) {
+  target->set_id(source.id);
+  target->set_description(source.description);
+
+  if (source.mcp.has_value()) {
+    auto* mcp = target->mutable_mcp();
+    mcp->mutable_server()->set_name(source.mcp->server.name);
+    mcp->mutable_server()->set_version(source.mcp->server.version);
+    if (source.mcp->server.title.has_value()) {
+      mcp->mutable_server()->set_title(*source.mcp->server.title);
+    }
+    if (source.mcp->server.description.has_value()) {
+      mcp->mutable_server()->set_description(*source.mcp->server.description);
+    }
+    if (source.mcp->server.website_url.has_value()) {
+      mcp->mutable_server()->set_website_url(*source.mcp->server.website_url);
+    }
+    if (source.mcp->server.instructions.has_value()) {
+      mcp->mutable_server()->set_instructions(*source.mcp->server.instructions);
+    }
+    for (const auto transport : source.mcp->transports) {
+      mcp->add_transports(to_proto_mcp_transport(transport));
+    }
+  }
+}
+
+void assign_backend(proto::ProjectDefinition* target, const backend_definition& source) {
+  switch (source.kind) {
+    case backend_kind::device: {
+      auto* device = target->mutable_device();
+      device->set_name(source.name);
+      if (source.image_path.has_value()) {
+        device->set_image_path(*source.image_path);
+      }
+      if (source.category_icon.has_value()) {
+        device->set_category_icon(*source.category_icon);
+      }
+      switch (source.connection_kind) {
+        case backend_connection_kind::http:
+          if (source.device_http.has_value()) {
+            auto* http = device->mutable_http();
+            http->set_base_url(source.device_http->base_url);
+            assign_named_strings(http->mutable_headers(), source.device_http->headers);
+            if (source.device_http->version.has_value()) {
+              http->set_version(*source.device_http->version);
+            }
+            http->set_tls_enabled(source.device_http->tls_enabled);
+          }
+          break;
+        case backend_connection_kind::uart:
+          if (source.device_uart.has_value()) {
+            auto* uart = device->mutable_uart();
+            if (source.device_uart->baud_rate.has_value()) {
+              uart->set_baud_rate(*source.device_uart->baud_rate);
+            }
+            if (source.device_uart->port.has_value()) {
+              uart->set_port(*source.device_uart->port);
+            }
+            if (source.device_uart->framing.has_value()) {
+              uart->set_framing(*source.device_uart->framing);
+            }
+          }
+          break;
+        case backend_connection_kind::ethernet:
+          if (source.device_ethernet.has_value()) {
+            auto* ethernet = device->mutable_ethernet();
+            ethernet->set_host(source.device_ethernet->host);
+            if (source.device_ethernet->port.has_value()) {
+              ethernet->set_port(*source.device_ethernet->port);
+            }
+            ethernet->set_protocol(source.device_ethernet->protocol);
+          }
+          break;
+        case backend_connection_kind::sql:
+        case backend_connection_kind::tree:
+          break;
+      }
+      return;
+    }
+    case backend_kind::database: {
+      auto* database = target->mutable_database();
+      database->set_name(source.name);
+      if (source.description.has_value()) {
+        database->set_description(*source.description);
+      }
+      if (source.database_sql.has_value()) {
+        auto* sql = database->mutable_sql();
+        sql->set_dsn(source.database_sql->dsn);
+        sql->set_dialect(source.database_sql->dialect);
+        assign_named_strings(sql->mutable_parameters(), source.database_sql->parameters);
+      }
+      return;
+    }
+    case backend_kind::file: {
+      auto* file = target->mutable_file();
+      file->set_name(source.name);
+      if (source.description.has_value()) {
+        file->set_description(*source.description);
+      }
+      if (source.file_tree.has_value()) {
+        auto* tree = file->mutable_tree();
+        tree->set_root_path(source.file_tree->root_path);
+        assign_string_list(tree->mutable_include_globs(), source.file_tree->include_globs);
+        assign_string_list(tree->mutable_exclude_globs(), source.file_tree->exclude_globs);
+        tree->set_read_only(source.file_tree->read_only);
+      }
+      return;
+    }
+  }
+}
+
+void assign_action(proto::ActionDefinition* target, const action_definition& source) {
+  target->set_id(source.id);
+  target->set_description(source.description);
+
+  switch (source.type) {
+    case action_type::http:
+      if (source.http.has_value()) {
+        auto* http = target->mutable_http();
+        http->set_method(to_proto_http_method(source.http->method));
+        http->set_path(source.http->path_template);
+        assign_named_strings(http->mutable_query(), source.http->query_parameters);
+        assign_named_strings(http->mutable_headers(), source.http->headers);
+        if (!source.http->body_template.is_null()) {
+          assign_data_value(http->mutable_body(), source.http->body_template);
+        }
+        for (const auto status : source.http->success_statuses) {
+          http->add_success_statuses(status);
+        }
+      }
+      return;
+    case action_type::sql:
+      if (source.sql.has_value()) {
+        auto* sql = target->mutable_sql();
+        sql->set_statement(source.sql->statement);
+        assign_named_strings(sql->mutable_parameters(), source.sql->parameters);
+        sql->set_result_format(source.sql->result_format);
+      }
+      return;
+    case action_type::file_read:
+      if (source.file_read.has_value()) {
+        auto* file_read = target->mutable_file_read();
+        file_read->set_path(source.file_read->path);
+        file_read->set_format(source.file_read->format);
+      }
+      return;
+    case action_type::file_list:
+      if (source.file_list.has_value()) {
+        auto* file_list = target->mutable_file_list();
+        file_list->set_path(source.file_list->path);
+        file_list->set_glob(source.file_list->glob);
+        file_list->set_recursive(source.file_list->recursive);
+      }
+      return;
+    case action_type::uart:
+      if (source.uart.has_value()) {
+        auto* uart = target->mutable_uart();
+        uart->set_command(source.uart->command);
+        if (!source.uart->payload_template.is_null()) {
+          assign_data_value(uart->mutable_payload(), source.uart->payload_template);
+        }
+      }
+      return;
   }
 }
 
@@ -772,141 +1119,22 @@ proto::ProjectDefinition to_proto_project(const project_definition& project) {
   if (project.logging.file_path.has_value()) {
     target.mutable_logging()->set_file_path(project.logging.file_path->string());
   }
-  target.mutable_mcp_server()->set_name(project.mcp_server.name);
-  target.mutable_mcp_server()->set_version(project.mcp_server.version);
-  if (project.mcp_server.title.has_value()) {
-    target.mutable_mcp_server()->set_title(*project.mcp_server.title);
+  for (const auto& service : project.services) {
+    assign_service(target.add_services(), service);
   }
-  if (project.mcp_server.description.has_value()) {
-    target.mutable_mcp_server()->set_description(*project.mcp_server.description);
-  }
-  if (project.mcp_server.website_url.has_value()) {
-    target.mutable_mcp_server()->set_website_url(*project.mcp_server.website_url);
-  }
-  if (project.mcp_server.instructions.has_value()) {
-    target.mutable_mcp_server()->set_instructions(*project.mcp_server.instructions);
-  }
-  for (const auto transport : project.mcp_transports) {
-    switch (transport) {
-      case mcp_transport::streamable_http:
-        target.add_mcp_transports(proto::MCP_TRANSPORT_STREAMABLE_HTTP);
-        break;
-      case mcp_transport::stdio:
-        target.add_mcp_transports(proto::MCP_TRANSPORT_STDIO);
-        break;
-    }
-  }
-  if (project.product_connector.has_value()) {
-    switch (*project.product_connector) {
-      case product_connector::http:
-        target.set_product_connector(proto::PRODUCT_CONNECTOR_HTTP);
-        break;
-      case product_connector::uart:
-        target.set_product_connector(proto::PRODUCT_CONNECTOR_UART);
-        break;
-    }
-  }
-  if (project.product_name.has_value()) {
-    target.set_product_name(*project.product_name);
-  }
-  if (project.product_image_path.has_value()) {
-    target.set_product_image_path(*project.product_image_path);
-  }
-  if (project.product_category_icon.has_value()) {
-    target.set_product_category_icon(*project.product_category_icon);
-  }
-  if (project.product_http.version.has_value() || project.product_http.tls_enabled ||
-      !project.product_http.mandatory_headers.empty()) {
-    if (project.product_http.version.has_value()) {
-      target.mutable_product_http()->set_version(*project.product_http.version);
-    }
-    target.mutable_product_http()->set_tls_enabled(project.product_http.tls_enabled);
-    assign_named_strings(
-        target.mutable_product_http()->mutable_mandatory_headers(),
-        project.product_http.mandatory_headers);
-  }
-  if (project.product_uart.baud_rate.has_value() || project.product_uart.port.has_value() ||
-      project.product_uart.framing.has_value()) {
-    if (project.product_uart.baud_rate.has_value()) {
-      target.mutable_product_uart()->set_baud_rate(*project.product_uart.baud_rate);
-    }
-    if (project.product_uart.port.has_value()) {
-      target.mutable_product_uart()->set_port(*project.product_uart.port);
-    }
-    if (project.product_uart.framing.has_value()) {
-      target.mutable_product_uart()->set_framing(*project.product_uart.framing);
-    }
-  }
-
-  for (const auto& backend : project.backends) {
-    auto* backend_proto = target.add_backends();
-    backend_proto->set_id(backend.id);
-    backend_proto->set_type(to_proto_backend_type(backend.type));
-    backend_proto->set_base_url(backend.base_url);
-    assign_named_strings(backend_proto->mutable_headers(), backend.headers);
+  if (project.backend.has_value()) {
+    assign_backend(&target, *project.backend);
   }
 
   for (const auto& capability : project.capabilities) {
     auto* capability_proto = target.add_capabilities();
     capability_proto->set_id(capability.id);
-    capability_proto->set_tool_name(capability.tool_name);
+    capability_proto->set_name(capability.name);
     capability_proto->set_description(capability.description);
-
-    auto* input_schema = capability_proto->mutable_input_schema();
-    if (const auto type = capability.input_schema.find("type");
-        type != capability.input_schema.end() && type->is_string()) {
-      input_schema->set_type(type->get<std::string>());
-    }
-    if (const auto additional = capability.input_schema.find("additionalProperties");
-        additional != capability.input_schema.end() && additional->is_boolean()) {
-      input_schema->set_additional_properties(additional->get<bool>());
-    }
-    if (const auto properties = capability.input_schema.find("properties");
-        properties != capability.input_schema.end() && properties->is_object()) {
-      for (const auto& [name, schema] : properties->items()) {
-        auto* property = input_schema->add_properties();
-        property->set_name(name);
-        if (schema.is_object()) {
-          if (const auto type = schema.find("type");
-              type != schema.end() && type->is_string()) {
-            property->set_type(type->get<std::string>());
-          }
-          if (const auto minimum = schema.find("minimum");
-              minimum != schema.end()) {
-            assign_data_value(property->mutable_minimum(), *minimum);
-          }
-          if (const auto maximum = schema.find("maximum");
-              maximum != schema.end()) {
-            assign_data_value(property->mutable_maximum(), *maximum);
-          }
-        }
-      }
-    }
-    if (const auto required = capability.input_schema.find("required");
-        required != capability.input_schema.end() && required->is_array()) {
-      for (const auto& item : *required) {
-        if (item.is_string()) {
-          capability_proto->mutable_input_schema()->add_required(
-              item.get<std::string>());
-        }
-      }
-    }
+    assign_input_schema(capability_proto->mutable_input_schema(), capability.input_schema);
 
     for (const auto& action : capability.actions) {
-      auto* action_proto = capability_proto->add_actions();
-      action_proto->set_id(action.id);
-      action_proto->set_description(action.description);
-      action_proto->set_backend(action.backend_id);
-      action_proto->set_method(to_proto_http_method(action.method));
-      action_proto->set_path(action.path_template);
-      assign_named_strings(action_proto->mutable_query(), action.query_parameters);
-      assign_named_strings(action_proto->mutable_headers(), action.headers);
-      if (!action.body_template.is_null()) {
-        assign_data_value(action_proto->mutable_body(), action.body_template);
-      }
-      for (const auto status : action.success_statuses) {
-        action_proto->add_success_statuses(status);
-      }
+      assign_action(capability_proto->add_actions(), action);
     }
 
     for (const auto& precondition : capability.preconditions) {
@@ -925,7 +1153,7 @@ proto::ProjectDefinition to_proto_project(const project_definition& project) {
       setup_proto->set_action(setup_step.action_id);
     }
 
-    capability_proto->set_action(capability.main_action_id);
+    capability_proto->set_main_action(capability.main_action_id);
 
     if (capability.verification.has_value()) {
       auto* verification_proto = capability_proto->mutable_verification();
@@ -970,12 +1198,10 @@ proto::ProjectDefinition to_proto_project(const project_definition& project) {
 
 }  // namespace
 
-std::string_view to_string(const backend_type value) noexcept {
+std::string_view to_string(const service_type value) noexcept {
   switch (value) {
-    case backend_type::http_json:
-      return "http_json";
-    case backend_type::localhost_http_json:
-      return "localhost_http_json";
+    case service_type::mcp:
+      return "mcp";
   }
   return "unknown";
 }
@@ -990,12 +1216,30 @@ std::string_view to_string(const mcp_transport value) noexcept {
   return "unknown";
 }
 
-std::string_view to_string(const product_connector value) noexcept {
+std::string_view to_string(const backend_kind value) noexcept {
   switch (value) {
-    case product_connector::http:
+    case backend_kind::device:
+      return "device";
+    case backend_kind::database:
+      return "database";
+    case backend_kind::file:
+      return "file";
+  }
+  return "unknown";
+}
+
+std::string_view to_string(const backend_connection_kind value) noexcept {
+  switch (value) {
+    case backend_connection_kind::http:
       return "http";
-    case product_connector::uart:
+    case backend_connection_kind::uart:
       return "uart";
+    case backend_connection_kind::ethernet:
+      return "ethernet";
+    case backend_connection_kind::sql:
+      return "sql";
+    case backend_connection_kind::tree:
+      return "tree";
   }
   return "unknown";
 }
@@ -1010,6 +1254,22 @@ std::string_view to_string(const http_method value) noexcept {
       return "PUT";
   }
   return "UNKNOWN";
+}
+
+std::string_view to_string(const action_type value) noexcept {
+  switch (value) {
+    case action_type::http:
+      return "http";
+    case action_type::sql:
+      return "sql";
+    case action_type::file_read:
+      return "file_read";
+    case action_type::file_list:
+      return "file_list";
+    case action_type::uart:
+      return "uart";
+  }
+  return "unknown";
 }
 
 std::string_view to_string(const output_source value) noexcept {
@@ -1038,16 +1298,6 @@ std::string_view to_string(const output_transform value) noexcept {
   return "unknown";
 }
 
-std::optional<backend_type> parse_backend_type(const std::string_view value) noexcept {
-  if (value == "http_json") {
-    return backend_type::http_json;
-  }
-  if (value == "localhost_http_json") {
-    return backend_type::localhost_http_json;
-  }
-  return std::nullopt;
-}
-
 std::optional<mcp_transport> parse_mcp_transport(
     const std::string_view value) noexcept {
   if (value == "streamable_http") {
@@ -1059,13 +1309,35 @@ std::optional<mcp_transport> parse_mcp_transport(
   return std::nullopt;
 }
 
-std::optional<product_connector> parse_product_connector(
+std::optional<backend_kind> parse_backend_kind(const std::string_view value) noexcept {
+  if (value == "device") {
+    return backend_kind::device;
+  }
+  if (value == "database") {
+    return backend_kind::database;
+  }
+  if (value == "file") {
+    return backend_kind::file;
+  }
+  return std::nullopt;
+}
+
+std::optional<backend_connection_kind> parse_backend_connection_kind(
     const std::string_view value) noexcept {
   if (value == "http") {
-    return product_connector::http;
+    return backend_connection_kind::http;
   }
   if (value == "uart") {
-    return product_connector::uart;
+    return backend_connection_kind::uart;
+  }
+  if (value == "ethernet") {
+    return backend_connection_kind::ethernet;
+  }
+  if (value == "sql") {
+    return backend_connection_kind::sql;
+  }
+  if (value == "tree") {
+    return backend_connection_kind::tree;
   }
   return std::nullopt;
 }
@@ -1079,6 +1351,25 @@ std::optional<http_method> parse_http_method(const std::string_view value) noexc
   }
   if (value == "PUT") {
     return http_method::put;
+  }
+  return std::nullopt;
+}
+
+std::optional<action_type> parse_action_type(const std::string_view value) noexcept {
+  if (value == "http") {
+    return action_type::http;
+  }
+  if (value == "sql") {
+    return action_type::sql;
+  }
+  if (value == "file_read") {
+    return action_type::file_read;
+  }
+  if (value == "file_list") {
+    return action_type::file_list;
+  }
+  if (value == "uart") {
+    return action_type::uart;
   }
   return std::nullopt;
 }
