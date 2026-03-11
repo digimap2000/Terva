@@ -4,22 +4,10 @@ package terva.project.v1;
 
 import "google/protobuf/struct.proto";
 
-enum BackendType {
-  BACKEND_TYPE_UNSPECIFIED = 0;
-  BACKEND_TYPE_HTTP_JSON = 1;
-  BACKEND_TYPE_LOCALHOST_HTTP_JSON = 2;
-}
-
 enum McpTransport {
   MCP_TRANSPORT_UNSPECIFIED = 0;
   MCP_TRANSPORT_STREAMABLE_HTTP = 1;
   MCP_TRANSPORT_STDIO = 2;
-}
-
-enum ProductConnector {
-  PRODUCT_CONNECTOR_UNSPECIFIED = 0;
-  PRODUCT_CONNECTOR_HTTP = 1;
-  PRODUCT_CONNECTOR_UART = 2;
 }
 
 enum HttpMethod {
@@ -88,35 +76,124 @@ message McpServerDefinition {
   string instructions = 6;
 }
 
-message ProductHttpSettings {
-  string version = 1;
-  bool tls_enabled = 2;
-  repeated NamedString mandatory_headers = 3;
+message McpServiceDefinition {
+  McpServerDefinition server = 1;
+  repeated McpTransport transports = 2;
 }
 
-message ProductUartSettings {
+message ServiceDefinition {
+  string id = 1;
+  string description = 2;
+
+  oneof config {
+    McpServiceDefinition mcp = 10;
+  }
+}
+
+message DeviceHttpConnection {
+  string base_url = 1;
+  repeated NamedString headers = 2;
+  string version = 3;
+  bool tls_enabled = 4;
+}
+
+message DeviceUartConnection {
   optional int32 baud_rate = 1;
   string port = 2;
   string framing = 3;
 }
 
-message BackendDefinition {
-  string id = 1;
-  BackendType type = 2;
-  string base_url = 3;
-  repeated NamedString headers = 4;
+message DeviceEthernetConnection {
+  string host = 1;
+  optional int32 port = 2;
+  string protocol = 3;
 }
 
-message HttpActionDefinition {
+message DeviceBackendDefinition {
+  string name = 1;
+  string image_path = 2;
+  string category_icon = 3;
+
+  oneof connection {
+    DeviceHttpConnection http = 10;
+    DeviceUartConnection uart = 11;
+    DeviceEthernetConnection ethernet = 12;
+  }
+}
+
+message DatabaseSqlConnection {
+  string dsn = 1;
+  string dialect = 2;
+  repeated NamedString parameters = 3;
+}
+
+message DatabaseBackendDefinition {
+  string name = 1;
+  string description = 2;
+
+  oneof connection {
+    DatabaseSqlConnection sql = 10;
+  }
+}
+
+message FileTreeConnection {
+  string root_path = 1;
+  repeated string include_globs = 2;
+  repeated string exclude_globs = 3;
+  bool read_only = 4;
+}
+
+message FileBackendDefinition {
+  string name = 1;
+  string description = 2;
+
+  oneof connection {
+    FileTreeConnection tree = 10;
+  }
+}
+
+message HttpRequestOperation {
+  HttpMethod method = 1;
+  string path = 2;
+  repeated NamedString query = 3;
+  repeated NamedString headers = 4;
+  DataValue body = 5;
+  repeated int32 success_statuses = 6;
+}
+
+message SqlQueryOperation {
+  string statement = 1;
+  repeated NamedString parameters = 2;
+  string result_format = 3;
+}
+
+message FileReadOperation {
+  string path = 1;
+  string format = 2;
+}
+
+message FileListOperation {
+  string path = 1;
+  string glob = 2;
+  bool recursive = 3;
+}
+
+message UartExchangeOperation {
+  string command = 1;
+  DataValue payload = 2;
+}
+
+message ActionDefinition {
   string id = 1;
   string description = 2;
-  string backend = 3;
-  HttpMethod method = 4;
-  string path = 5;
-  repeated NamedString query = 6;
-  repeated NamedString headers = 7;
-  DataValue body = 8;
-  repeated int32 success_statuses = 9;
+
+  oneof operation {
+    HttpRequestOperation http = 10;
+    SqlQueryOperation sql = 11;
+    FileReadOperation file_read = 12;
+    FileListOperation file_list = 13;
+    UartExchangeOperation uart = 14;
+  }
 }
 
 message ValueExpectation {
@@ -182,13 +259,13 @@ message InputSchema {
 
 message CapabilityDefinition {
   string id = 1;
-  string tool_name = 2;
+  string name = 2;
   string description = 3;
   InputSchema input_schema = 4;
-  repeated HttpActionDefinition actions = 5;
+  repeated ActionDefinition actions = 5;
   repeated PreconditionDefinition preconditions = 6;
   repeated SetupStepDefinition setup = 7;
-  string action = 8;
+  string main_action = 8;
   VerificationDefinition verification = 9;
   repeated OutputFieldMapping output_fields = 10;
 }
@@ -197,14 +274,12 @@ message ProjectDefinition {
   string name = 1;
   string description = 2;
   LoggingOptions logging = 3;
-  repeated BackendDefinition backends = 4;
-  repeated CapabilityDefinition capabilities = 5;
-  McpServerDefinition mcp_server = 6;
-  repeated McpTransport mcp_transports = 7;
-  ProductConnector product_connector = 8;
-  ProductHttpSettings product_http = 9;
-  ProductUartSettings product_uart = 10;
-  string product_name = 11;
-  string product_image_path = 12;
-  string product_category_icon = 13;
+  repeated CapabilityDefinition capabilities = 4;
+  repeated ServiceDefinition services = 5;
+
+  oneof backend {
+    DeviceBackendDefinition device = 20;
+    DatabaseBackendDefinition database = 21;
+    FileBackendDefinition file = 22;
+  }
 }
