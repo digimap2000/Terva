@@ -7,6 +7,7 @@ Terva is a core-first product scaffold with a single canonical in-process engine
 The current v1 shape is intentionally simple:
 
 - A shared C++ core owns the `.terva` project model, validation, capability execution, backend integration, structured logs, and runtime behavior.
+- Each project defines one backend, one or more services, and a shared capability surface published through those services.
 - `terva-client` is a thin direct host over that same C++ engine.
 - The Tauri desktop app links to the C++ core in process through Rust `cxx` bridge code.
 - There is no daemon, RPC layer, or stdio control plane in v1.
@@ -56,35 +57,26 @@ The desktop app links to the same engine in process through the Rust `cxx` bridg
 ### Launch the desktop app and start the MCP server
 
 ```sh
-npm --prefix apps/desktop run tauri dev -- -- --open streamer.terva --start-server
+npm --prefix apps/desktop run tauri dev -- -- --open audio-streamer.terva --start-server
 ```
 
-The linked core will load the project and start the MCP server over localhost Streamable HTTP.
+The linked core will load the project and start the first MCP service configured for Streamable HTTP.
 
-## Streamer Example
+## Project Shape
 
-The repo also includes a real-device project file at [streamer.terva](/Users/andys/Documents/ajs/Terva/streamer.terva) for the known streamer backend at `http://192.168.1.111:15081`.
+`.terva` projects are authored as protobuf text format and split into:
 
-```sh
-./build/dev/apps/cli/terva-client validate streamer.terva
-./build/dev/apps/cli/terva-client inspect streamer.terva
-./build/dev/apps/cli/terva-client tools streamer.terva
-./build/dev/apps/cli/terva-client call streamer.terva get_playback_session '{}'
-./build/dev/apps/cli/terva-client call streamer.terva get_power_state '{}'
-./build/dev/apps/cli/terva-client call streamer.terva enter_active '{}'
-./build/dev/apps/cli/terva-client call streamer.terva enter_standby '{}'
-```
-
-`get_playback_session` reads `GET /nowplaying`, normalizes the streamer transport state into a stable Terva playback state, derives a concise source name, and converts vendor millisecond positions into seconds while retaining the raw backend payload under `trace`.
-
-`get_power_state` reads `GET /power`, extracts the device `system` field, and normalizes it to `active`, `standby`, or `unknown`.
-
-`enter_active` performs `PUT /power?system=on`, verifies `system == "on"`, and then waits through a bounded settle delay before returning so the next command can reliably target the real device.
-
-`enter_standby` performs `PUT /power?system=lona` and verifies `system == "lona"`.
+- `backend`: how to reach the concrete device, database, or filesystem
+- `services`: publication layers such as MCP over Streamable HTTP or stdio
+- `capabilities`: the canonical behavior surface implemented by the backend
 
 Tool results are intentionally split into:
 
 - `output`: concise capability-facing data
 - `verification`: expected vs observed final state for state-changing tools
 - `trace`: low-level HTTP/backend execution details
+
+Example project files:
+
+- [examples/demo-volume.terva](/Users/andys/Documents/ajs/Terva/examples/demo-volume.terva)
+- [audio-streamer.terva](/Users/andys/Documents/ajs/Terva/audio-streamer.terva)

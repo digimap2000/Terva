@@ -1,33 +1,38 @@
 name: "Audio Streamer"
 description: "New Terva project."
-mcp_transports: MCP_TRANSPORT_STREAMABLE_HTTP
-product_connector: PRODUCT_CONNECTOR_HTTP
-
-product_http {
-  version: "1.1"
-  tls_enabled: false
-}
-mcp_server {
-  name: "Audio Streamer"
-  version: "1.0.1"
-  title: "Audio Streamer"
-  description: "New Terva MCP server."
-  instructions: "Use the exposed tools and resources from this Terva project."
-}
 
 logging {
   sink: "stderr"
 }
 
-backends {
+services {
   id: "primary"
-  type: BACKEND_TYPE_HTTP_JSON
-  base_url: "http://127.0.0.1:8080"
+  description: "Primary MCP service for the audio streamer."
+  mcp {
+    server {
+      name: "audio-streamer"
+      version: "1.0.1"
+      title: "Audio Streamer"
+      description: "New Terva MCP service."
+      instructions: "Use the exposed tools and resources from this Terva project."
+    }
+    transports: MCP_TRANSPORT_STREAMABLE_HTTP
+  }
+}
+
+device {
+  name: "Audio Streamer"
+  category_icon: "device"
+  http {
+    base_url: "http://127.0.0.1:8080"
+    version: "1.1"
+    tls_enabled: false
+  }
 }
 
 capabilities {
   id: "ping_service"
-  tool_name: "ping_service"
+  name: "ping_service"
   description: "Starter placeholder capability. Replace this with the first real operation for the project."
   input_schema {
     type: "object"
@@ -35,12 +40,13 @@ capabilities {
   }
   actions {
     id: "ping_service"
-    backend: "primary"
-    method: HTTP_METHOD_GET
-    path: "/"
-    success_statuses: 200
+    http {
+      method: HTTP_METHOD_GET
+      path: "/"
+      success_statuses: 200
+    }
   }
-  action: "ping_service"
+  main_action: "ping_service"
   output_fields {
     name: "status"
     source: OUTPUT_SOURCE_LITERAL

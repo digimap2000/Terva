@@ -1,8 +1,14 @@
 # `.terva` Project Format
 
-`.terva` files are now protobuf text format files backed by the schema in [project.proto](/Users/andys/Documents/ajs/Terva/proto/terva/project/v1/project.proto).
+`.terva` files are protobuf text format files backed by the schema in [project.proto](/Users/andys/Documents/ajs/Terva/proto/terva/project/v1/project.proto).
 
-The runtime parses textproto, converts it into Terva's internal project model, then runs the same validator and execution path as before.
+The current project model is split into three concerns:
+
+- `backend`: the one concrete system being controlled and how Terva talks to it
+- `services`: one or more publication surfaces over the same capability set
+- `capabilities`: the canonical behavior surface implemented by the backend
+
+Today the runtime supports a single backend and currently publishes MCP services.
 
 ## Root Shape
 
@@ -10,16 +16,27 @@ Top-level fields:
 
 - `name`
 - `description`
-- `mcp_server`
 - `logging`
-- `backends`
+- `services`
+- one backend via `device`, `database`, or `file`
 - `capabilities`
 
-## MCP Server Metadata
+## Services
 
-`mcp_server` carries the top-level server identity used by the linked MCP runtime.
+Services are the external protocols layered over the capability surface.
 
-Fields:
+`ServiceDefinition` currently supports:
+
+- `id`
+- `description`
+- `mcp`
+
+`mcp` contains:
+
+- `server`
+- `transports`
+
+`server` fields:
 
 - `name`
 - `version`
@@ -28,38 +45,96 @@ Fields:
 - `website_url`
 - `instructions`
 
-For current MCP compatibility, `name` and `version` should always be set.
+Example:
 
-## Backend Shape
+```textproto
+services {
+  id: "primary"
+  description: "Primary MCP service."
+  mcp {
+    server {
+      name: "demo-volume"
+      version: "1.0.1"
+      title: "Demo Volume"
+    }
+    transports: MCP_TRANSPORT_STREAMABLE_HTTP
+  }
+}
+```
 
-Supported backend enums:
+## Backends
 
-- `BACKEND_TYPE_HTTP_JSON`
-- `BACKEND_TYPE_LOCALHOST_HTTP_JSON`
+Projects currently define one backend using a top-level `oneof backend`.
 
-Backend fields:
+Supported backend families:
 
-- `id`
-- `type`
-- `base_url`
-- `headers`
+- `device`
+- `database`
+- `file`
 
-Headers are repeated `name` / `value` entries.
+Current connection shapes:
 
-## Capability Shape
+- `device.http`
+- `device.uart`
+- `device.ethernet`
+- `database.sql`
+- `file.tree`
+
+Example device HTTP backend:
+
+```textproto
+device {
+  name: "Demo Audio Device"
+  category_icon: "device"
+  http {
+    base_url: "http://127.0.0.1:18080"
+    version: "1.1"
+    tls_enabled: false
+  }
+}
+```
+
+## Capabilities
 
 Each capability contains:
 
 - `id`
-- `tool_name`
+- `name`
 - `description`
 - `input_schema`
 - `actions`
 - `preconditions`
 - `setup`
-- `action`
+- `main_action`
 - `verification`
 - `output_fields`
+
+`name` is the published capability identifier used by current MCP tooling.
+
+## Actions
+
+Actions are named so validation can check references from preconditions, setup, verification, and `main_action`.
+
+`ActionDefinition` currently supports a single `oneof operation`:
+
+- `http`
+- `sql`
+- `file_read`
+- `file_list`
+- `uart`
+
+Example HTTP action:
+
+```textproto
+actions {
+  id: "ping_service"
+  http {
+    method: HTTP_METHOD_GET
+    path: "/"
+    success_statuses: 200
+  }
+}
+```
 
 ## Input Schema
 
@@ -80,29 +155,6 @@ input_schema {
   additional_properties: false
 }
 ```
-
-This converts into the same internal JSON schema shape used by the existing validator/runtime.
-
-## Action Shape
-
-Actions are named so validation can check references.
-
-- `id`
-- `backend`
-- `method`
-- `path`
-- `query`
-- `headers`
-- `body`
-- `success_statuses`
-
-Supported HTTP method enums:
-
-- `HTTP_METHOD_GET`
-- `HTTP_METHOD_POST`
-- `HTTP_METHOD_PUT`
-
-Query and header entries are repeated `name` / `value` pairs.
 
 ## Values
 
@@ -127,22 +179,9 @@ expect {
 }
 ```
 
-Example object body:
+## Expectations And Output Fields
 
-```textproto
-body {
-  object_value {
-    fields {
-      name: "vol"
-      value { string_value: "{{input.level}}" }
-    }
-  }
-}
-```
-
-## Expectations
-
-Preconditions and verification use explicit expectations:
+Preconditions and verification use:
 
 - `json_pointer`
 - `equals`
@@ -158,11 +197,7 @@ Verification may also define:
 - `delay_ms`
 - `success_delay_ms`
 
-## Output Fields
-
-Output fields are represented as repeated named entries.
-
-Each entry supports:
+Output fields are represented as repeated named entries with:
 
 - `name`
 - `source`
@@ -174,41 +209,9 @@ Each entry supports:
 - `default_value`
 - `required`
 
-Supported output-source enums:
-
-- `OUTPUT_SOURCE_INPUT`
-- `OUTPUT_SOURCE_ACTION`
-- `OUTPUT_SOURCE_VERIFICATION`
-- `OUTPUT_SOURCE_LITERAL`
-
-Supported output-transform enums:
-
-- `OUTPUT_TRANSFORM_NONE`
-- `OUTPUT_TRANSFORM_MILLISECONDS_TO_SECONDS`
-- `OUTPUT_TRANSFORM_LAST_PATH_SEGMENT`
-
-Example:
-
-```textproto
-output_fields {
-  name: "normalized_state"
-  source: OUTPUT_SOURCE_ACTION
-  json_pointer: "/system"
-  normalize {
-    raw_value: "on"
-    mapped_value { string_value: "active" }
-  }
-  normalize {
-    raw_value: "lona"
-    mapped_value { string_value: "standby" }
-  }
-  default_value { string_value: "unknown" }
-}
-```
-
 ## Example Files
 
 See:
 
 - [examples/demo-volume.terva](/Users/andys/Documents/ajs/Terva/examples/demo-volume.terva)
-- [streamer.terva](/Users/andys/Documents/ajs/Terva/streamer.terva)
+- [audio-streamer.terva](/Users/andys/Documents/ajs/Terva/audio-streamer.terva)

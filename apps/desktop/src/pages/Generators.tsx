@@ -897,6 +897,9 @@ function ExecutionStepCard({
   index: number;
   backendBaseUrl: string;
 }) {
+  const actionPath = action.path ?? "";
+  const successStatuses = action.success_statuses ?? [];
+
   return (
     <div className="rounded-lg border border-border/60 px-4 py-3 text-sm">
       <div className="text-xs uppercase tracking-[0.24em] text-muted-foreground">
@@ -910,11 +913,11 @@ function ExecutionStepCard({
       </div>
       {backendBaseUrl ? (
         <div className="mt-1 font-mono text-xs text-muted-foreground">
-          {joinUrl(backendBaseUrl, action.path)}
+          {joinUrl(backendBaseUrl, actionPath)}
         </div>
       ) : null}
       <div className="mt-1 text-muted-foreground">
-        Success statuses {action.success_statuses.join(", ")}
+        Success statuses {successStatuses.join(", ")}
       </div>
     </div>
   );
