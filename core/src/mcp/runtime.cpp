@@ -5,16 +5,30 @@
 #include <dts/mcp/http_transport.hpp>
 #include <dts/mcp/server_options.hpp>
 
+#include <algorithm>
 #include <chrono>
 
 namespace terva::core::mcp {
+namespace {
+
+[[nodiscard]] const project::service_definition* find_mcp_service(
+    const project::project_definition& project) {
+  for (const auto& service : project.services) {
+    if (service.type == project::service_type::mcp && service.mcp.has_value()) {
+      return &service;
+    }
+  }
+  return nullptr;
+}
+
+}  // namespace
 
 struct runtime::shared_state final {
   explicit shared_state(project::project_definition definition,
                         logging::shared_logger shared_logger)
       : project(std::move(definition)),
         logger(std::move(shared_logger)),
-        backends(project.backends),
+        backends(*project.backend),
         executor(project, backends, logger) {}
 
   project::project_definition project;
@@ -81,18 +95,28 @@ std::expected<dts::mcp::server, std::string> runtime::make_server() const {
   }
 
   dts::mcp::server_options options;
-  options.server_name = state->project.mcp_server.name;
-  options.server_version = state->project.mcp_server.version;
+  const auto* service = find_mcp_service(state->project);
+  if (service == nullptr || !service->mcp.has_value()) {
+    return std::unexpected("project does not define an MCP service");
+  }
+  if (std::ranges::find(service->mcp->transports,
+                        project::mcp_transport::streamable_http) ==
+      service->mcp->transports.end()) {
+    return std::unexpected("project MCP service does not enable streamable_http");
+  }
+
+  options.server_name = service->mcp->server.name;
+  options.server_version = service->mcp->server.version;
   options.log_tag = "terva-mcp";
   options.tool_result_mode = dts::mcp::result_mode::raw_json;
 
   dts::mcp::server server(options);
   for (const auto& capability : state->project.capabilities) {
     dts::mcp::tool_definition tool{
-        .name = capability.tool_name,
+        .name = capability.name,
         .description = capability.description,
         .input_schema = capability.input_schema,
-        .handler = [state, tool_name = capability.tool_name](
+        .handler = [state, tool_name = capability.name](
                        dts::mcp::tool_context&, const dts::mcp::json& arguments)
             -> std::expected<dts::mcp::json, dts::mcp::error> {
           const auto result = state->executor.execute_tool(tool_name, arguments);

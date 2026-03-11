@@ -95,22 +95,124 @@ struct managed_http_server final {
          document.validation_issues.empty();
 }
 
-[[nodiscard]] json action_payload(
-    const project::http_action_definition& action) {
-  json query = json::object();
-  for (const auto& [name, value] : action.query_parameters) {
-    query[name] = value;
+[[nodiscard]] const project::service_definition* first_mcp_service(
+    const project::project_definition& project) {
+  for (const auto& service : project.services) {
+    if (service.type == project::service_type::mcp && service.mcp.has_value()) {
+      return &service;
+    }
+  }
+  return nullptr;
+}
+
+[[nodiscard]] json derived_product_http(const project::project_definition& project) {
+  if (!project.backend.has_value() || !project.backend->device_http.has_value()) {
+    return json{
+        {"version", ""},
+        {"tls_enabled", false},
+        {"mandatory_headers", json::array()},
+    };
   }
 
+  json headers = json::array();
+  for (const auto& [name, value] : project.backend->device_http->headers) {
+    headers.push_back(json{{"name", name}, {"value", value}});
+  }
   return json{
+      {"version", project.backend->device_http->version.value_or("")},
+      {"tls_enabled", project.backend->device_http->tls_enabled},
+      {"mandatory_headers", std::move(headers)},
+  };
+}
+
+[[nodiscard]] json derived_product_uart(const project::project_definition& project) {
+  if (!project.backend.has_value() || !project.backend->device_uart.has_value()) {
+    return json{
+        {"baud_rate", 0},
+        {"port", ""},
+        {"framing", ""},
+    };
+  }
+  return json{
+      {"baud_rate", project.backend->device_uart->baud_rate.value_or(0)},
+      {"port", project.backend->device_uart->port.value_or("")},
+      {"framing", project.backend->device_uart->framing.value_or("")},
+  };
+}
+
+[[nodiscard]] json action_payload(
+    const project::action_definition& action,
+    const project::project_definition& project) {
+  json payload{
       {"id", action.id},
       {"description", action.description},
-      {"backend_id", action.backend_id},
-      {"method", project::to_string(action.method)},
-      {"path", action.path_template},
-      {"query", std::move(query)},
-      {"success_statuses", action.success_statuses},
+      {"operation_type", project::to_string(action.type)},
+      {"backend_id", project.backend.has_value() ? project.backend->name : ""},
   };
+
+  switch (action.type) {
+    case project::action_type::http:
+      if (action.http.has_value()) {
+        json query = json::object();
+        for (const auto& [name, value] : action.http->query_parameters) {
+          query[name] = value;
+        }
+        payload["method"] = project::to_string(action.http->method);
+        payload["path"] = action.http->path_template;
+        payload["query"] = std::move(query);
+        payload["success_statuses"] = action.http->success_statuses;
+      }
+      break;
+    case project::action_type::sql:
+      if (action.sql.has_value()) {
+        payload["statement"] = action.sql->statement;
+        payload["result_format"] = action.sql->result_format;
+      }
+      break;
+    case project::action_type::file_read:
+      if (action.file_read.has_value()) {
+        payload["path"] = action.file_read->path;
+        payload["format"] = action.file_read->format;
+      }
+      break;
+    case project::action_type::file_list:
+      if (action.file_list.has_value()) {
+        payload["path"] = action.file_list->path;
+        payload["glob"] = action.file_list->glob;
+        payload["recursive"] = action.file_list->recursive;
+      }
+      break;
+    case project::action_type::uart:
+      if (action.uart.has_value()) {
+        payload["command"] = action.uart->command;
+      }
+      break;
+  }
+
+  return payload;
+}
+
+[[nodiscard]] json backend_payload(const project::project_definition& project) {
+  if (!project.backend.has_value()) {
+    return json{
+        {"name", ""},
+        {"backend_type", ""},
+        {"connection_kind", ""},
+    };
+  }
+
+  json payload{
+      {"name", project.backend->name},
+      {"backend_type", project::to_string(project.backend->kind)},
+      {"connection_kind", project::to_string(project.backend->connection_kind)},
+      {"description", project.backend->description.value_or("")},
+      {"image_path", project.backend->image_path.value_or("")},
+      {"category_icon", project.backend->category_icon.value_or("")},
+  };
+  if (project.backend->device_http.has_value()) {
+    payload["base_url"] = project.backend->device_http->base_url;
+  }
+  return payload;
 }
 
 [[nodiscard]] json output_field_payload(
@@ -162,46 +264,67 @@ struct managed_http_server final {
 }
 
 [[nodiscard]] json inspection_payload(const project::project_definition& project) {
+  const auto* mcp_service = first_mcp_service(project);
   json mcp_transports = json::array();
-  for (const auto transport : project.mcp_transports) {
-    mcp_transports.push_back(project::to_string(transport));
+  json mcp_server{
+      {"name", ""},
+      {"version", ""},
+      {"title", ""},
+      {"description", ""},
+      {"website_url", ""},
+      {"instructions", ""},
+  };
+  if (mcp_service != nullptr && mcp_service->mcp.has_value()) {
+    for (const auto transport : mcp_service->mcp->transports) {
+      mcp_transports.push_back(project::to_string(transport));
+    }
+    mcp_server = json{
+        {"name", mcp_service->mcp->server.name},
+        {"version", mcp_service->mcp->server.version},
+        {"title", mcp_service->mcp->server.title.value_or("")},
+        {"description", mcp_service->mcp->server.description.value_or("")},
+        {"website_url", mcp_service->mcp->server.website_url.value_or("")},
+        {"instructions", mcp_service->mcp->server.instructions.value_or("")},
+    };
   }
 
-  const auto product_connector =
-      project.product_connector.has_value()
-          ? json(project::to_string(*project.product_connector))
-          : json("");
-
-  json product_http_headers = json::array();
-  for (const auto& [name, value] : project.product_http.mandatory_headers) {
-    product_http_headers.push_back(json{{"name", name}, {"value", value}});
+  json services = json::array();
+  for (const auto& service : project.services) {
+    json payload{
+        {"id", service.id},
+        {"description", service.description},
+        {"service_type", project::to_string(service.type)},
+    };
+    if (service.mcp.has_value()) {
+      json transports = json::array();
+      for (const auto transport : service.mcp->transports) {
+        transports.push_back(project::to_string(transport));
+      }
+      payload["mcp"] = json{
+          {"server", json{
+                         {"name", service.mcp->server.name},
+                         {"version", service.mcp->server.version},
+                         {"title", service.mcp->server.title.value_or("")},
+                         {"description", service.mcp->server.description.value_or("")},
+                         {"website_url", service.mcp->server.website_url.value_or("")},
+                         {"instructions", service.mcp->server.instructions.value_or("")},
+                     }},
+          {"transports", std::move(transports)},
+      };
+    }
+    services.push_back(std::move(payload));
   }
-
-  json product_http{
-      {"version", project.product_http.version.value_or("")},
-      {"tls_enabled", project.product_http.tls_enabled},
-      {"mandatory_headers", std::move(product_http_headers)},
-  };
-  json product_uart{
-      {"baud_rate", project.product_uart.baud_rate.value_or(0)},
-      {"port", project.product_uart.port.value_or("")},
-      {"framing", project.product_uart.framing.value_or("")},
-  };
 
   json backends = json::array();
-  for (const auto& backend : project.backends) {
-    backends.push_back(json{
-        {"id", backend.id},
-        {"type", project::to_string(backend.type)},
-        {"base_url", backend.base_url},
-    });
+  if (project.backend.has_value()) {
+    backends.push_back(backend_payload(project));
   }
 
   json capabilities = json::array();
   for (const auto& capability : project.capabilities) {
     json actions = json::array();
     for (const auto& action : capability.actions) {
-      actions.push_back(action_payload(action));
+      actions.push_back(action_payload(action, project));
     }
     json output_fields = json::array();
     for (const auto& output : capability.output_fields) {
@@ -217,7 +340,8 @@ struct managed_http_server final {
 
     json capability_payload{
         {"id", capability.id},
-        {"tool_name", capability.tool_name},
+        {"name", capability.name},
+        {"tool_name", capability.name},
         {"description", capability.description},
         {"input_schema", capability.input_schema},
         {"input_schema_keys", std::move(tool_schema_keys)},
@@ -232,26 +356,23 @@ struct managed_http_server final {
     capabilities.push_back(std::move(capability_payload));
   }
 
-  json mcp_server{
-      {"name", project.mcp_server.name},
-      {"version", project.mcp_server.version},
-      {"title", project.mcp_server.title.value_or("")},
-      {"description", project.mcp_server.description.value_or("")},
-      {"website_url", project.mcp_server.website_url.value_or("")},
-      {"instructions", project.mcp_server.instructions.value_or("")},
-  };
-
   return json{
       {"name", project.name},
       {"description", project.description.value_or("")},
       {"mcp_server", std::move(mcp_server)},
       {"mcp_transports", std::move(mcp_transports)},
-      {"product_connector", std::move(product_connector)},
-      {"product_name", project.product_name.value_or("")},
-      {"product_image_path", project.product_image_path.value_or("")},
-      {"product_category_icon", project.product_category_icon.value_or("")},
-      {"product_http", std::move(product_http)},
-      {"product_uart", std::move(product_uart)},
+      {"product_connector", project.backend.has_value()
+                                ? json(project::to_string(project.backend->connection_kind))
+                                : json("")},
+      {"product_name", project.backend.has_value() ? project.backend->name : ""},
+      {"product_image_path",
+       project.backend.has_value() ? project.backend->image_path.value_or("") : ""},
+      {"product_category_icon",
+       project.backend.has_value() ? project.backend->category_icon.value_or("") : ""},
+      {"product_http", derived_product_http(project)},
+      {"product_uart", derived_product_uart(project)},
+      {"services", std::move(services)},
+      {"backend", backend_payload(project)},
       {"source_path", project.source_path.string()},
       {"backends", std::move(backends)},
       {"capabilities", std::move(capabilities)},
@@ -275,45 +396,18 @@ struct managed_http_server final {
 
   if (document.project.has_value()) {
     payload["description"] = document.project->description.value_or("");
-    json mcp_transports = json::array();
-    for (const auto transport : document.project->mcp_transports) {
-      mcp_transports.push_back(project::to_string(transport));
-    }
-    const auto product_connector =
-        document.project->product_connector.has_value()
-            ? json(project::to_string(*document.project->product_connector))
-            : json("");
-    json product_http_headers = json::array();
-    for (const auto& [name, value] : document.project->product_http.mandatory_headers) {
-      product_http_headers.push_back(json{{"name", name}, {"value", value}});
-    }
-    payload["mcp_transports"] = std::move(mcp_transports);
-    payload["product_connector"] = std::move(product_connector);
-    payload["product_name"] = document.project->product_name.value_or("");
-    payload["product_image_path"] = document.project->product_image_path.value_or("");
-    payload["product_category_icon"] =
-        document.project->product_category_icon.value_or("");
-    payload["product_http"] = json{
-        {"version", document.project->product_http.version.value_or("")},
-        {"tls_enabled", document.project->product_http.tls_enabled},
-        {"mandatory_headers", std::move(product_http_headers)},
-    };
-    payload["product_uart"] = json{
-        {"baud_rate", document.project->product_uart.baud_rate.value_or(0)},
-        {"port", document.project->product_uart.port.value_or("")},
-        {"framing", document.project->product_uart.framing.value_or("")},
-    };
-    payload["mcp_server"] = json{
-        {"name", document.project->mcp_server.name},
-        {"version", document.project->mcp_server.version},
-        {"title", document.project->mcp_server.title.value_or("")},
-        {"description", document.project->mcp_server.description.value_or("")},
-        {"website_url", document.project->mcp_server.website_url.value_or("")},
-        {"instructions", document.project->mcp_server.instructions.value_or("")},
-    };
-    payload["backend_count"] = document.project->backends.size();
+    const auto inspection = inspection_payload(*document.project);
+    payload["mcp_transports"] = inspection["mcp_transports"];
+    payload["product_connector"] = inspection["product_connector"];
+    payload["product_name"] = inspection["product_name"];
+    payload["product_image_path"] = inspection["product_image_path"];
+    payload["product_category_icon"] = inspection["product_category_icon"];
+    payload["product_http"] = inspection["product_http"];
+    payload["product_uart"] = inspection["product_uart"];
+    payload["mcp_server"] = inspection["mcp_server"];
+    payload["backend_count"] = document.project->backend.has_value() ? 1 : 0;
     payload["capability_count"] = document.project->capabilities.size();
-    payload["inspection"] = inspection_payload(*document.project);
+    payload["inspection"] = std::move(inspection);
   } else {
     payload["description"] = "";
     payload["mcp_transports"] = json::array();
@@ -377,7 +471,8 @@ struct managed_http_server final {
   for (const auto& capability : project.capabilities) {
     tools.push_back(json{
         {"capability_id", capability.id},
-        {"tool_name", capability.tool_name},
+        {"name", capability.name},
+        {"tool_name", capability.name},
         {"description", capability.description},
         {"input_schema", capability.input_schema},
     });
@@ -612,44 +707,123 @@ std::expected<json, std::string> engine::update_project_metadata(
 
   assign_required_string("project_name", updated.name);
   assign_optional_string("project_description", updated.description);
-  assign_required_string("mcp_name", updated.mcp_server.name);
-  assign_required_string("mcp_version", updated.mcp_server.version);
-  assign_optional_string("mcp_title", updated.mcp_server.title);
-  assign_optional_string("mcp_description", updated.mcp_server.description);
-  assign_optional_string("mcp_website_url", updated.mcp_server.website_url);
-  assign_optional_string("mcp_instructions", updated.mcp_server.instructions);
+  if (updated.services.empty()) {
+    updated.services.push_back(project::service_definition{
+        .id = "primary",
+        .description = "Primary MCP service",
+        .type = project::service_type::mcp,
+        .mcp = project::mcp_service_definition{},
+    });
+  }
+  auto& service = updated.services.front();
+  service.type = project::service_type::mcp;
+  if (!service.mcp.has_value()) {
+    service.mcp = project::mcp_service_definition{};
+  }
+  assign_required_string("mcp_name", service.mcp->server.name);
+  assign_required_string("mcp_version", service.mcp->server.version);
+  assign_optional_string("mcp_title", service.mcp->server.title);
+  assign_optional_string("mcp_description", service.mcp->server.description);
+  assign_optional_string("mcp_website_url", service.mcp->server.website_url);
+  assign_optional_string("mcp_instructions", service.mcp->server.instructions);
   if (const auto transport_names = assign_string_list("mcp_transports");
       transport_names.has_value()) {
-    updated.mcp_transports.clear();
+    service.mcp->transports.clear();
     for (const auto& value : *transport_names) {
       const auto parsed = project::parse_mcp_transport(value);
       if (!parsed.has_value()) {
         return std::unexpected("unsupported MCP transport: " + value);
       }
-      updated.mcp_transports.push_back(*parsed);
+      service.mcp->transports.push_back(*parsed);
     }
+  }
+  if (!updated.backend.has_value()) {
+    updated.backend = project::backend_definition{
+        .kind = project::backend_kind::device,
+        .name = updated.name,
+        .connection_kind = project::backend_connection_kind::http,
+        .device_http = project::device_http_connection{},
+    };
   }
   if (const auto it = metadata.find("product_connector");
       it != metadata.end() && it->is_string()) {
     const auto value = it->get<std::string>();
-    const auto parsed = project::parse_product_connector(value);
+    const auto parsed = project::parse_backend_connection_kind(value);
     if (!parsed.has_value()) {
       return std::unexpected("unsupported product connector: " + value);
     }
-    updated.product_connector = *parsed;
+    updated.backend->connection_kind = *parsed;
+    switch (*parsed) {
+      case project::backend_connection_kind::http:
+        updated.backend->kind = project::backend_kind::device;
+        if (!updated.backend->device_http.has_value()) {
+          updated.backend->device_http = project::device_http_connection{};
+        }
+        updated.backend->device_uart.reset();
+        updated.backend->device_ethernet.reset();
+        updated.backend->database_sql.reset();
+        updated.backend->file_tree.reset();
+        break;
+      case project::backend_connection_kind::uart:
+        updated.backend->kind = project::backend_kind::device;
+        if (!updated.backend->device_uart.has_value()) {
+          updated.backend->device_uart = project::device_uart_connection{};
+        }
+        updated.backend->device_http.reset();
+        updated.backend->device_ethernet.reset();
+        updated.backend->database_sql.reset();
+        updated.backend->file_tree.reset();
+        break;
+      case project::backend_connection_kind::ethernet:
+        updated.backend->kind = project::backend_kind::device;
+        if (!updated.backend->device_ethernet.has_value()) {
+          updated.backend->device_ethernet = project::device_ethernet_connection{};
+        }
+        updated.backend->device_http.reset();
+        updated.backend->device_uart.reset();
+        updated.backend->database_sql.reset();
+        updated.backend->file_tree.reset();
+        break;
+      case project::backend_connection_kind::sql:
+        updated.backend->kind = project::backend_kind::database;
+        if (!updated.backend->database_sql.has_value()) {
+          updated.backend->database_sql = project::database_sql_connection{};
+        }
+        updated.backend->device_http.reset();
+        updated.backend->device_uart.reset();
+        updated.backend->device_ethernet.reset();
+        updated.backend->file_tree.reset();
+        break;
+      case project::backend_connection_kind::tree:
+        updated.backend->kind = project::backend_kind::file;
+        if (!updated.backend->file_tree.has_value()) {
+          updated.backend->file_tree = project::file_tree_connection{};
+        }
+        updated.backend->device_http.reset();
+        updated.backend->device_uart.reset();
+        updated.backend->device_ethernet.reset();
+        updated.backend->database_sql.reset();
+        break;
+    }
   }
-  assign_optional_string("product_name", updated.product_name);
-  assign_optional_string("product_image_path", updated.product_image_path);
-  assign_optional_string("product_category_icon", updated.product_category_icon);
-  assign_optional_string("product_http_version", updated.product_http.version);
-  assign_optional_bool("product_http_tls_enabled", updated.product_http.tls_enabled);
+  assign_required_string("product_name", updated.backend->name);
+  assign_optional_string("product_image_path", updated.backend->image_path);
+  assign_optional_string("product_category_icon", updated.backend->category_icon);
+  if (!updated.backend->device_http.has_value()) {
+    updated.backend->device_http = project::device_http_connection{};
+  }
+  assign_optional_string("product_http_version", updated.backend->device_http->version);
+  assign_optional_bool("product_http_tls_enabled", updated.backend->device_http->tls_enabled);
   if (const auto headers = assign_named_string_list("product_http_mandatory_headers");
       headers.has_value()) {
-    updated.product_http.mandatory_headers = std::move(*headers);
+    updated.backend->device_http->headers = std::move(*headers);
   }
-  assign_optional_int("product_uart_baud_rate", updated.product_uart.baud_rate);
-  assign_optional_string("product_uart_port", updated.product_uart.port);
-  assign_optional_string("product_uart_framing", updated.product_uart.framing);
+  if (!updated.backend->device_uart.has_value()) {
+    updated.backend->device_uart = project::device_uart_connection{};
+  }
+  assign_optional_int("product_uart_baud_rate", updated.backend->device_uart->baud_rate);
+  assign_optional_string("product_uart_port", updated.backend->device_uart->port);
+  assign_optional_string("product_uart_framing", updated.backend->device_uart->framing);
 
   auto rendered = project::render_project_text(updated);
   if (!rendered) {
@@ -743,7 +917,7 @@ std::expected<json, std::string> engine::update_endpoint_command(
 
   auto action_it = std::find_if(
       capability_it->actions.begin(), capability_it->actions.end(),
-      [&capability_it](const project::http_action_definition& action) {
+      [&capability_it](const project::action_definition& action) {
         return action.id == capability_it->main_action_id;
       });
   if (action_it == capability_it->actions.end()) {
@@ -751,8 +925,16 @@ std::expected<json, std::string> engine::update_endpoint_command(
     capability_it->main_action_id = action_it->id;
   }
 
-  action_it->method = *parsed_method;
-  action_it->path_template = path_it->get<std::string>();
+  action_it->type = project::action_type::http;
+  action_it->sql.reset();
+  action_it->file_read.reset();
+  action_it->file_list.reset();
+  action_it->uart.reset();
+  if (!action_it->http.has_value()) {
+    action_it->http = project::http_request_operation{};
+  }
+  action_it->http->method = *parsed_method;
+  action_it->http->path_template = path_it->get<std::string>();
 
   if (response_mode == "raw_response") {
     capability_it->output_fields.clear();
@@ -908,8 +1090,11 @@ std::expected<json, std::string> engine::list_tools() {
     };
     impl_->runtime_logger = std::make_shared<logging::jsonl_logger>(
         impl_->document->project->logging, std::move(callback));
+    if (!impl_->document->project->backend.has_value()) {
+      return std::unexpected("active project does not define a backend");
+    }
     impl_->backends = std::make_unique<backend::backend_registry>(
-        impl_->document->project->backends);
+        *impl_->document->project->backend);
     impl_->executor = std::make_unique<capability::capability_executor>(
         *impl_->document->project,
         *impl_->backends,

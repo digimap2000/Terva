@@ -38,7 +38,7 @@ class backend_adapter {
 
 class backend_registry final {
  public:
-  explicit backend_registry(const std::vector<project::backend_definition>& definitions);
+  explicit backend_registry(const project::backend_definition& definition);
   ~backend_registry();
 
   backend_registry(const backend_registry&) = delete;

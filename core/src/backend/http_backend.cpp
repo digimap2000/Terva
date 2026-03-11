@@ -156,7 +156,12 @@ std::expected<backend_response, std::string> http_backend::perform(
     return std::unexpected(encoded_query.error());
   }
 
-  auto url = join_url(definition_.base_url, request.path);
+  if (!definition_.device_http.has_value()) {
+    curl_easy_cleanup(handle);
+    return std::unexpected("backend is missing an HTTP connection");
+  }
+
+  auto url = join_url(definition_.device_http->base_url, request.path);
   if (!encoded_query->empty()) {
     url.push_back('?');
     url.append(*encoded_query);
@@ -196,7 +201,7 @@ std::expected<backend_response, std::string> http_backend::perform(
     raw_headers = curl_slist_append(
         raw_headers, "Content-Type: application/json");
   }
-  for (const auto& [name, value] : definition_.headers) {
+  for (const auto& [name, value] : definition_.device_http->headers) {
     const auto header_line = name + ": " + value;
     raw_headers = curl_slist_append(raw_headers, header_line.c_str());
   }
@@ -237,12 +242,13 @@ std::expected<backend_response, std::string> http_backend::perform(
   return response;
 }
 
-backend_registry::backend_registry(
-    const std::vector<project::backend_definition>& definitions)
+backend_registry::backend_registry(const project::backend_definition& definition)
     : impl_(std::make_unique<impl>()) {
-  for (const auto& definition : definitions) {
-    impl_->adapters.emplace(
-        definition.id, std::make_unique<http_backend>(definition));
+  if (definition.kind == project::backend_kind::device &&
+      definition.connection_kind == project::backend_connection_kind::http &&
+      definition.device_http.has_value()) {
+    impl_->adapters.emplace(definition.name,
+                            std::make_unique<http_backend>(definition));
   }
 }
 

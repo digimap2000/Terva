@@ -21,13 +21,17 @@ struct action_execution_output final {
 [[nodiscard]] std::string join_action_url(
     const project::backend_definition& backend,
     const std::string& path) {
-  if (backend.base_url.ends_with('/') && path.starts_with('/')) {
-    return backend.base_url.substr(0, backend.base_url.size() - 1) + path;
+  if (!backend.device_http.has_value()) {
+    return path;
   }
-  if (!backend.base_url.ends_with('/') && !path.starts_with('/')) {
-    return backend.base_url + "/" + path;
+  const auto& base_url = backend.device_http->base_url;
+  if (base_url.ends_with('/') && path.starts_with('/')) {
+    return base_url.substr(0, base_url.size() - 1) + path;
   }
-  return backend.base_url + path;
+  if (!base_url.ends_with('/') && !path.starts_with('/')) {
+    return base_url + "/" + path;
+  }
+  return base_url + path;
 }
 
 [[nodiscard]] std::string append_query_string(
@@ -55,25 +59,14 @@ struct action_execution_output final {
     const project::project_definition& project,
     const std::string_view tool_name) {
   for (const auto& capability : project.capabilities) {
-    if (capability.tool_name == tool_name) {
+    if (capability.name == tool_name) {
       return &capability;
     }
   }
   return nullptr;
 }
 
-[[nodiscard]] const project::backend_definition* find_backend(
-    const project::project_definition& project,
-    const std::string_view backend_id) {
-  for (const auto& backend : project.backends) {
-    if (backend.id == backend_id) {
-      return &backend;
-    }
-  }
-  return nullptr;
-}
-
-[[nodiscard]] const project::http_action_definition* find_action(
+[[nodiscard]] const project::action_definition* find_action(
     const project::capability_definition& capability,
     const std::string_view action_id) {
   for (const auto& action : capability.actions) {
@@ -525,7 +518,7 @@ capability_executor::execute_tool(const std::string_view tool_name,
     capability_execution_result result{
         .ok = false,
         .capability_id = capability->id,
-        .tool_name = capability->tool_name,
+        .tool_name = capability->name,
         .output = json::object(),
         .error = capability_error{
             .stage = "input",
@@ -542,7 +535,7 @@ capability_executor::execute_tool(const std::string_view tool_name,
   capability_execution_result result{
       .ok = false,
       .capability_id = capability->id,
-      .tool_name = capability->tool_name,
+      .tool_name = capability->name,
       .output = json::object(),
   };
 
@@ -562,29 +555,39 @@ capability_executor::execute_tool(const std::string_view tool_name,
   if (logger_) {
     logger_->emit("terva.tool_invocation_started",
                   json{{"capability_id", capability->id},
-                       {"tool_name", capability->tool_name},
+                       {"tool_name", capability->name},
                        {"input", input}});
   }
 
   const auto execute_action = [&](std::string stage,
-                                  const project::http_action_definition& action)
+                                  const project::action_definition& action)
       -> action_execution_output {
     action_execution_output output;
     output.summary.stage = std::move(stage);
     output.summary.action_id = action.id;
-    output.summary.backend_id = action.backend_id;
-    output.summary.method = std::string(project::to_string(action.method));
-
-    const auto* backend_definition = find_backend(project_, action.backend_id);
-    if (backend_definition == nullptr) {
-      output.summary.error = "unknown backend: " + action.backend_id;
+    if (!project_.backend.has_value()) {
+      output.summary.error = "project backend is not configured";
       return output;
     }
-    for (const auto& [name, value] : backend_definition->headers) {
+    if (action.type != project::action_type::http || !action.http.has_value()) {
+      output.summary.error = "unsupported action type for executor: " +
+                             std::string(project::to_string(action.type));
+      return output;
+    }
+    const auto& backend_definition = *project_.backend;
+    const auto& http = *action.http;
+    output.summary.backend_id = backend_definition.name;
+    output.summary.method = std::string(project::to_string(http.method));
+
+    if (!backend_definition.device_http.has_value()) {
+      output.summary.error = "backend does not provide an HTTP connection";
+      return output;
+    }
+    for (const auto& [name, value] : backend_definition.device_http->headers) {
       output.summary.request_headers[name] = value;
     }
 
-    const auto rendered_path = render_text_template(action.path_template, input);
+    const auto rendered_path = render_text_template(http.path_template, input);
     if (!rendered_path) {
       output.summary.error = rendered_path.error();
       return output;
@@ -592,7 +595,7 @@ capability_executor::execute_tool(const std::string_view tool_name,
     output.summary.path = *rendered_path;
 
     const auto rendered_query =
-        render_string_map_templates(action.query_parameters, input);
+        render_string_map_templates(http.query_parameters, input);
     if (!rendered_query) {
       output.summary.error = rendered_query.error();
       return output;
@@ -602,7 +605,7 @@ capability_executor::execute_tool(const std::string_view tool_name,
     }
 
     const auto rendered_headers =
-        render_string_map_templates(action.headers, input);
+        render_string_map_templates(http.headers, input);
     if (!rendered_headers) {
       output.summary.error = rendered_headers.error();
       return output;
@@ -613,8 +616,8 @@ capability_executor::execute_tool(const std::string_view tool_name,
 
     json rendered_body = json::object();
     bool has_body = false;
-    if (!action.body_template.is_null()) {
-      const auto body = render_json_template(action.body_template, input);
+    if (!http.body_template.is_null()) {
+      const auto body = render_json_template(http.body_template, input);
       if (!body) {
         output.summary.error = body.error();
         return output;
@@ -624,12 +627,12 @@ capability_executor::execute_tool(const std::string_view tool_name,
     }
 
     output.summary.url = append_query_string(
-        join_action_url(*backend_definition, *rendered_path), *rendered_query);
+        join_action_url(backend_definition, *rendered_path), *rendered_query);
     output.summary.request_body = has_body ? rendered_body : json(nullptr);
 
     backend::backend_request request{
-        .backend_id = action.backend_id,
-        .method = action.method,
+        .backend_id = backend_definition.name,
+        .method = http.method,
         .path = *rendered_path,
         .query_parameters = *rendered_query,
         .headers = *rendered_headers,
@@ -651,8 +654,8 @@ capability_executor::execute_tool(const std::string_view tool_name,
     output.summary.response_body_text = response->raw_body;
     output.response_body = response->body;
     output.summary.ok = std::ranges::find(
-                            action.success_statuses, response->status_code) !=
-                        action.success_statuses.end();
+                            http.success_statuses, response->status_code) !=
+                        http.success_statuses.end();
     if (!output.summary.ok) {
       output.summary.error =
           "unexpected HTTP status " + std::to_string(response->status_code);
