@@ -2,7 +2,6 @@
 
 #include <set>
 #include <string>
-#include <unordered_map>
 
 namespace terva::core::project {
 namespace {
@@ -31,6 +30,254 @@ namespace {
   return names;
 }
 
+void validate_named_values(
+    std::vector<validation_issue>& issues,
+    const std::map<std::string, std::string, std::less<>>& values,
+    const std::string& path,
+    const std::string& label) {
+  for (const auto& [name, value] : values) {
+    if (name.empty()) {
+      issues.push_back({path, label + " names must not be empty"});
+    }
+    if (value.empty()) {
+      issues.push_back({path + "." + name, label + " values must not be empty"});
+    }
+  }
+}
+
+void validate_backend(std::vector<validation_issue>& issues,
+                      const backend_definition& backend) {
+  if (backend.name.empty()) {
+    issues.push_back({"project.backend.name", "must not be empty"});
+  }
+
+  switch (backend.kind) {
+    case backend_kind::device:
+      switch (backend.connection_kind) {
+        case backend_connection_kind::http:
+          if (!backend.device_http.has_value()) {
+            issues.push_back({"project.backend.device.http",
+                              "must be defined for an HTTP device backend"});
+            return;
+          }
+          if (!is_http_url(backend.device_http->base_url)) {
+            issues.push_back({"project.backend.device.http.base_url",
+                              "must be an HTTP or HTTPS URL"});
+          }
+          validate_named_values(issues, backend.device_http->headers,
+                                "project.backend.device.http.headers", "header");
+          break;
+        case backend_connection_kind::uart:
+          if (!backend.device_uart.has_value()) {
+            issues.push_back({"project.backend.device.uart",
+                              "must be defined for a UART device backend"});
+            return;
+          }
+          if (backend.device_uart->baud_rate.has_value() &&
+              *backend.device_uart->baud_rate <= 0) {
+            issues.push_back({"project.backend.device.uart.baud_rate",
+                              "must be greater than 0"});
+          }
+          if (!backend.device_uart->port.has_value() || backend.device_uart->port->empty()) {
+            issues.push_back({"project.backend.device.uart.port", "must not be empty"});
+          }
+          break;
+        case backend_connection_kind::ethernet:
+          if (!backend.device_ethernet.has_value()) {
+            issues.push_back({"project.backend.device.ethernet",
+                              "must be defined for an ethernet device backend"});
+            return;
+          }
+          if (backend.device_ethernet->host.empty()) {
+            issues.push_back({"project.backend.device.ethernet.host", "must not be empty"});
+          }
+          if (backend.device_ethernet->port.has_value() &&
+              *backend.device_ethernet->port <= 0) {
+            issues.push_back({"project.backend.device.ethernet.port",
+                              "must be greater than 0"});
+          }
+          if (backend.device_ethernet->protocol.empty()) {
+            issues.push_back({"project.backend.device.ethernet.protocol",
+                              "must not be empty"});
+          }
+          break;
+        case backend_connection_kind::sql:
+        case backend_connection_kind::tree:
+          issues.push_back({"project.backend.connection_kind",
+                            "is not valid for a device backend"});
+          break;
+      }
+      break;
+    case backend_kind::database:
+      if (backend.connection_kind != backend_connection_kind::sql) {
+        issues.push_back({"project.backend.connection_kind",
+                          "must be sql for a database backend"});
+        return;
+      }
+      if (!backend.database_sql.has_value()) {
+        issues.push_back({"project.backend.database.sql",
+                          "must be defined for a database backend"});
+        return;
+      }
+      if (backend.database_sql->dsn.empty()) {
+        issues.push_back({"project.backend.database.sql.dsn", "must not be empty"});
+      }
+      if (backend.database_sql->dialect.empty()) {
+        issues.push_back({"project.backend.database.sql.dialect", "must not be empty"});
+      }
+      validate_named_values(issues, backend.database_sql->parameters,
+                            "project.backend.database.sql.parameters", "parameter");
+      break;
+    case backend_kind::file:
+      if (backend.connection_kind != backend_connection_kind::tree) {
+        issues.push_back({"project.backend.connection_kind",
+                          "must be tree for a file backend"});
+        return;
+      }
+      if (!backend.file_tree.has_value()) {
+        issues.push_back({"project.backend.file.tree",
+                          "must be defined for a file backend"});
+        return;
+      }
+      if (backend.file_tree->root_path.empty()) {
+        issues.push_back({"project.backend.file.tree.root_path", "must not be empty"});
+      }
+      break;
+  }
+}
+
+void validate_service(std::vector<validation_issue>& issues,
+                      const service_definition& service,
+                      std::set<std::string, std::less<>>& service_ids) {
+  const auto path = "project.services[" + service.id + "]";
+  if (service.id.empty()) {
+    issues.push_back({path + ".id", "must not be empty"});
+  } else if (!service_ids.insert(service.id).second) {
+    issues.push_back({path + ".id", "must be unique"});
+  }
+
+  switch (service.type) {
+    case service_type::mcp:
+      if (!service.mcp.has_value()) {
+        issues.push_back({path + ".mcp", "must be defined"});
+        return;
+      }
+      if (service.mcp->server.name.empty()) {
+        issues.push_back({path + ".mcp.server.name", "must not be empty"});
+      }
+      if (service.mcp->server.version.empty()) {
+        issues.push_back({path + ".mcp.server.version", "must not be empty"});
+      }
+      if (service.mcp->server.website_url.has_value() &&
+          !service.mcp->server.website_url->empty() &&
+          !is_http_url(*service.mcp->server.website_url)) {
+        issues.push_back({path + ".mcp.server.website_url",
+                          "must be an HTTP or HTTPS URL"});
+      }
+      if (service.mcp->transports.empty()) {
+        issues.push_back({path + ".mcp.transports",
+                          "must contain at least one transport"});
+      }
+      break;
+  }
+}
+
+[[nodiscard]] bool action_supported_by_backend(const action_definition& action,
+                                               const backend_definition& backend) {
+  switch (action.type) {
+    case action_type::http:
+      return backend.kind == backend_kind::device &&
+             backend.connection_kind == backend_connection_kind::http;
+    case action_type::sql:
+      return backend.kind == backend_kind::database &&
+             backend.connection_kind == backend_connection_kind::sql;
+    case action_type::file_read:
+    case action_type::file_list:
+      return backend.kind == backend_kind::file &&
+             backend.connection_kind == backend_connection_kind::tree;
+    case action_type::uart:
+      return backend.kind == backend_kind::device &&
+             backend.connection_kind == backend_connection_kind::uart;
+  }
+  return false;
+}
+
+void validate_action(std::vector<validation_issue>& issues,
+                     const action_definition& action,
+                     const std::string& path,
+                     const backend_definition& backend) {
+  if (action.id.empty()) {
+    issues.push_back({path + ".id", "must not be empty"});
+  }
+  if (!action_supported_by_backend(action, backend)) {
+    issues.push_back({path + ".operation",
+                      "is not compatible with the selected backend"});
+  }
+
+  switch (action.type) {
+    case action_type::http:
+      if (!action.http.has_value()) {
+        issues.push_back({path + ".http", "must be defined"});
+        return;
+      }
+      if (action.http->path_template.empty()) {
+        issues.push_back({path + ".http.path", "must not be empty"});
+      }
+      validate_named_values(issues, action.http->query_parameters,
+                            path + ".http.query", "query parameter");
+      validate_named_values(issues, action.http->headers,
+                            path + ".http.headers", "header");
+      if (action.http->success_statuses.empty()) {
+        issues.push_back({path + ".http.success_statuses",
+                          "must contain at least one status code"});
+      }
+      if (action.http->method == http_method::get &&
+          !action.http->body_template.is_null()) {
+        issues.push_back({path + ".http.body",
+                          "GET actions must not define a request body"});
+      }
+      break;
+    case action_type::sql:
+      if (!action.sql.has_value()) {
+        issues.push_back({path + ".sql", "must be defined"});
+        return;
+      }
+      if (action.sql->statement.empty()) {
+        issues.push_back({path + ".sql.statement", "must not be empty"});
+      }
+      validate_named_values(issues, action.sql->parameters,
+                            path + ".sql.parameters", "parameter");
+      break;
+    case action_type::file_read:
+      if (!action.file_read.has_value()) {
+        issues.push_back({path + ".file_read", "must be defined"});
+        return;
+      }
+      if (action.file_read->path.empty()) {
+        issues.push_back({path + ".file_read.path", "must not be empty"});
+      }
+      break;
+    case action_type::file_list:
+      if (!action.file_list.has_value()) {
+        issues.push_back({path + ".file_list", "must be defined"});
+        return;
+      }
+      if (action.file_list->path.empty()) {
+        issues.push_back({path + ".file_list.path", "must not be empty"});
+      }
+      break;
+    case action_type::uart:
+      if (!action.uart.has_value()) {
+        issues.push_back({path + ".uart", "must be defined"});
+        return;
+      }
+      if (action.uart->command.empty()) {
+        issues.push_back({path + ".uart.command", "must not be empty"});
+      }
+      break;
+  }
+}
+
 }  // namespace
 
 std::vector<validation_issue> validate_project(const project_definition& project) {
@@ -39,62 +286,27 @@ std::vector<validation_issue> validate_project(const project_definition& project
   if (project.name.empty()) {
     issues.push_back({"project.name", "must not be empty"});
   }
-  if (project.mcp_server.name.empty()) {
-    issues.push_back({"project.mcp_server.name", "must not be empty"});
+  if (!project.backend.has_value()) {
+    issues.push_back({"project.backend", "must be set"});
   }
-  if (project.mcp_server.version.empty()) {
-    issues.push_back({"project.mcp_server.version", "must not be empty"});
-  }
-  if (project.mcp_transports.empty()) {
-    issues.push_back({"project.mcp_transports", "must contain at least one transport"});
-  }
-  if (!project.product_connector.has_value()) {
-    issues.push_back({"project.product_connector", "must be set"});
-  }
-  if (project.mcp_server.website_url.has_value() &&
-      !project.mcp_server.website_url->empty() &&
-      !is_http_url(*project.mcp_server.website_url)) {
-    issues.push_back({"project.mcp_server.website_url",
-                      "must be an HTTP or HTTPS URL"});
-  }
-  for (const auto& [name, value] : project.product_http.mandatory_headers) {
-    if (name.empty()) {
-      issues.push_back({"project.product_http.mandatory_headers",
-                        "header names must not be empty"});
-    }
-    if (value.empty()) {
-      issues.push_back({"project.product_http.mandatory_headers." + name,
-                        "header values must not be empty"});
-    }
-  }
-  if (project.product_uart.baud_rate.has_value() && *project.product_uart.baud_rate <= 0) {
-    issues.push_back({"project.product_uart.baud_rate", "must be greater than 0"});
-  }
-
-  if (project.backends.empty()) {
-    issues.push_back({"project.backends", "must contain at least one backend"});
+  if (project.services.empty()) {
+    issues.push_back({"project.services", "must contain at least one service"});
   }
   if (project.capabilities.empty()) {
     issues.push_back({"project.capabilities", "must contain at least one capability"});
   }
 
-  std::set<std::string, std::less<>> backend_ids;
-  for (const auto& backend : project.backends) {
-    const auto path = "project.backends[" + backend.id + "]";
-    if (backend.id.empty()) {
-      issues.push_back({path + ".id", "must not be empty"});
-    }
-    if (!backend_ids.insert(backend.id).second) {
-      issues.push_back({path + ".id", "must be unique"});
-    }
-    if (!is_http_url(backend.base_url)) {
-      issues.push_back({path + ".base_url",
-                        "must be an HTTP or HTTPS base URL"});
-    }
+  if (project.backend.has_value()) {
+    validate_backend(issues, *project.backend);
+  }
+
+  std::set<std::string, std::less<>> service_ids;
+  for (const auto& service : project.services) {
+    validate_service(issues, service, service_ids);
   }
 
   std::set<std::string, std::less<>> capability_ids;
-  std::set<std::string, std::less<>> tool_names;
+  std::set<std::string, std::less<>> capability_names;
 
   for (const auto& capability : project.capabilities) {
     const auto capability_path = "capability[" + capability.id + "]";
@@ -104,11 +316,11 @@ std::vector<validation_issue> validate_project(const project_definition& project
     if (!capability_ids.insert(capability.id).second) {
       issues.push_back({capability_path + ".id", "must be unique"});
     }
-    if (capability.tool_name.empty()) {
-      issues.push_back({capability_path + ".tool_name", "must not be empty"});
+    if (capability.name.empty()) {
+      issues.push_back({capability_path + ".name", "must not be empty"});
     }
-    if (!tool_names.insert(capability.tool_name).second) {
-      issues.push_back({capability_path + ".tool_name", "must be unique"});
+    if (!capability.name.empty() && !capability_names.insert(capability.name).second) {
+      issues.push_back({capability_path + ".name", "must be unique"});
     }
     if (capability.description.empty()) {
       issues.push_back({capability_path + ".description", "must not be empty"});
@@ -120,8 +332,7 @@ std::vector<validation_issue> validate_project(const project_definition& project
       const auto type = capability.input_schema.find("type");
       if (type == capability.input_schema.end() || !type->is_string() ||
           *type != "object") {
-        issues.push_back({capability_path + ".input_schema.type",
-                          "must be \"object\""});
+        issues.push_back({capability_path + ".input_schema.type", "must be \"object\""});
       }
       const auto properties = capability.input_schema.find("properties");
       if (properties == capability.input_schema.end() || !properties->is_object()) {
@@ -144,10 +355,9 @@ std::vector<validation_issue> validate_project(const project_definition& project
             }
             const auto property_name = (*required)[index].get<std::string>();
             if (!property_names.contains(property_name)) {
-              issues.push_back(
-                  {capability_path + ".input_schema.required[" +
-                       std::to_string(index) + "]",
-                   "must reference a property declared in input_schema.properties"});
+              issues.push_back({capability_path + ".input_schema.required[" +
+                                    std::to_string(index) + "]",
+                                "must reference a property declared in input_schema.properties"});
             }
           }
         }
@@ -157,49 +367,16 @@ std::vector<validation_issue> validate_project(const project_definition& project
     std::set<std::string, std::less<>> action_ids;
     for (const auto& action : capability.actions) {
       const auto path = capability_path + ".action[" + action.id + "]";
-      if (action.id.empty()) {
-        issues.push_back({path + ".id", "must not be empty"});
-      }
       if (!action_ids.insert(action.id).second) {
         issues.push_back({path + ".id", "must be unique within a capability"});
       }
-      if (!backend_ids.contains(action.backend_id)) {
-        issues.push_back({path + ".backend", "must reference a known backend"});
-      }
-      if (action.path_template.empty()) {
-        issues.push_back({path + ".path", "must not be empty"});
-      }
-      for (const auto& [name, value] : action.query_parameters) {
-        if (name.empty()) {
-          issues.push_back({path + ".query",
-                            "query parameter names must not be empty"});
-        }
-        if (value.empty()) {
-          issues.push_back({path + ".query." + name,
-                            "query parameter values must not be empty"});
-        }
-      }
-      for (const auto& [name, value] : action.headers) {
-        if (name.empty()) {
-          issues.push_back({path + ".headers",
-                            "header names must not be empty"});
-        }
-        if (value.empty()) {
-          issues.push_back({path + ".headers." + name,
-                            "header values must not be empty"});
-        }
-      }
-      if (action.success_statuses.empty()) {
-        issues.push_back({path + ".success_statuses",
-                          "must contain at least one status code"});
-      }
-      if (action.method == http_method::get && !action.body_template.is_null()) {
-        issues.push_back({path + ".body", "GET actions must not define a request body"});
+      if (project.backend.has_value()) {
+        validate_action(issues, action, path, *project.backend);
       }
     }
 
     if (!action_ids.contains(capability.main_action_id)) {
-      issues.push_back({capability_path + ".action",
+      issues.push_back({capability_path + ".main_action",
                         "must reference a known action id"});
     }
 
@@ -221,8 +398,7 @@ std::vector<validation_issue> validate_project(const project_definition& project
       }
       if (!precondition.expect.equals.has_value() &&
           !precondition.expect.equals_input.has_value()) {
-        issues.push_back({path + ".expect",
-                          "must define equals or equals_input"});
+        issues.push_back({path + ".expect", "must define equals or equals_input"});
       }
     }
 
